@@ -1,0 +1,122 @@
+<?php
+
+namespace SageGrids\ContinuousDelivery\Console;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
+use SageGrids\ContinuousDelivery\Jobs\RunDeployJob;
+use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Notifications\DeploymentApproved;
+use SageGrids\ContinuousDelivery\Notifications\DeploymentStarted;
+
+class ApproveCommand extends Command
+{
+    protected $signature = 'deploy:approve
+                            {uuid : The deployment UUID}
+                            {--force : Skip confirmation prompt}';
+
+    protected $description = 'Approve a pending deployment.';
+
+    public function handle(): int
+    {
+        $uuid = $this->argument('uuid');
+        $deployment = Deployment::where('uuid', $uuid)->first();
+
+        if (!$deployment) {
+            $this->error("Deployment not found: {$uuid}");
+            return self::FAILURE;
+        }
+
+        if (!$deployment->canBeApproved()) {
+            $this->error("Deployment cannot be approved. Status: {$deployment->status}");
+
+            if ($deployment->hasExpired()) {
+                $this->line('The approval window has expired.');
+            }
+
+            return self::FAILURE;
+        }
+
+        // Show deployment details
+        $this->info('Deployment Details:');
+        $this->table([], [
+            ['UUID', $deployment->uuid],
+            ['Environment', $deployment->environment],
+            ['Trigger', "{$deployment->trigger_type}:{$deployment->trigger_ref}"],
+            ['Commit', $deployment->short_commit_sha],
+            ['Author', $deployment->author],
+            ['Created', $deployment->created_at->format('Y-m-d H:i:s')],
+            ['Expires', $deployment->approval_expires_at->format('Y-m-d H:i:s')],
+        ]);
+
+        if (!$this->option('force') && !$this->confirm('Approve this deployment?')) {
+            $this->line('Cancelled.');
+            return self::SUCCESS;
+        }
+
+        $approvedBy = sprintf('cli:%s', get_current_user());
+
+        try {
+            $deployment->approve($approvedBy);
+
+            Log::info('[continuous-delivery] Deployment approved via CLI', [
+                'uuid' => $deployment->uuid,
+                'approved_by' => $approvedBy,
+            ]);
+
+            $this->info("Deployment approved and queued.");
+
+            // Dispatch the job
+            $this->dispatchDeployment($deployment);
+
+            // Send notifications
+            $this->notifyApproved($deployment);
+            $this->notifyStarted($deployment);
+
+            $this->line("Deployment is now running. Check status with:");
+            $this->line("  php artisan deploy:status {$deployment->uuid}");
+
+            return self::SUCCESS;
+
+        } catch (\Throwable $e) {
+            $this->error("Failed to approve: {$e->getMessage()}");
+            return self::FAILURE;
+        }
+    }
+
+    protected function dispatchDeployment(Deployment $deployment): void
+    {
+        $job = new RunDeployJob($deployment);
+
+        $connection = config('continuous-delivery.queue.connection');
+        $queue = config('continuous-delivery.queue.queue');
+
+        if ($connection) {
+            $job->onConnection($connection);
+        }
+
+        if ($queue) {
+            $job->onQueue($queue);
+        }
+
+        dispatch($job);
+    }
+
+    protected function notifyApproved(Deployment $deployment): void
+    {
+        try {
+            $deployment->notify(new DeploymentApproved($deployment));
+        } catch (\Throwable $e) {
+            // Silent fail for notifications
+        }
+    }
+
+    protected function notifyStarted(Deployment $deployment): void
+    {
+        try {
+            $deployment->notify(new DeploymentStarted($deployment));
+        } catch (\Throwable $e) {
+            // Silent fail for notifications
+        }
+    }
+}

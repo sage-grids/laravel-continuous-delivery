@@ -1,0 +1,43 @@
+{
+    "name": "sage-grids/continuous-delivery",
+    "description": "Multi-environment continuous delivery for Laravel with GitHub webhooks, Envoy deployment, and human approval workflows.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^10.0|^11.0|^12.0",
+        "illuminate/queue": "^10.0|^11.0|^12.0",
+        "illuminate/http": "^10.0|^11.0|^12.0",
+        "illuminate/notifications": "^10.0|^11.0|^12.0",
+        "laravel/envoy": "^2.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0|^10.0",
+        "phpunit/phpunit": "^10.0|^11.0"
+    },
+    "suggest": {
+        "laravel-notification-channels/telegram": "Required for Telegram notifications"
+    },
+    "autoload": {
+        "psr-4": {
+            "SageGrids\\ContinuousDelivery\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "SageGrids\\ContinuousDelivery\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "SageGrids\\ContinuousDelivery\\ContinuousDeliveryServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
