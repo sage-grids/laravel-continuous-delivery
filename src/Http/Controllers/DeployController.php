@@ -5,7 +5,9 @@ namespace SageGrids\ContinuousDelivery\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use SageGrids\ContinuousDelivery\Exceptions\DeploymentConflictException;
 use SageGrids\ContinuousDelivery\Jobs\RunDeployJob;
 use SageGrids\ContinuousDelivery\Models\Deployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentApprovalRequired;
@@ -101,34 +103,42 @@ class DeployController extends Controller
         array $payload
     ): JsonResponse {
         $config = config("continuous-delivery.environments.{$environment}");
-
-        // Check for active deployment to same environment
-        $activeDeployment = Deployment::forEnvironment($environment)
-            ->active()
-            ->first();
-
-        if ($activeDeployment) {
-            Log::warning('[continuous-delivery] Active deployment exists', [
-                'environment' => $environment,
-                'active_uuid' => $activeDeployment->uuid,
-            ]);
-            return response()->json([
-                'error' => 'Active deployment in progress',
-                'active_deployment' => $activeDeployment->uuid,
-            ], 409);
-        }
-
         $requiresApproval = $config['approval_required'] ?? false;
         $timeoutHours = $config['approval_timeout_hours'] ?? 2;
 
-        $deployment = Deployment::createFromWebhook(
-            $environment,
-            $triggerType,
-            $triggerRef,
-            $payload,
-            $requiresApproval,
-            $timeoutHours
-        );
+        try {
+            $deployment = DB::connection(Deployment::getDeploymentConnection())
+                ->transaction(function () use ($environment, $triggerType, $triggerRef, $payload, $requiresApproval, $timeoutHours) {
+                    // Check for active deployment with pessimistic locking
+                    $activeDeployment = Deployment::forEnvironment($environment)
+                        ->active()
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($activeDeployment) {
+                        throw new DeploymentConflictException($environment, $activeDeployment);
+                    }
+
+                    return Deployment::createFromWebhook(
+                        $environment,
+                        $triggerType,
+                        $triggerRef,
+                        $payload,
+                        $requiresApproval,
+                        $timeoutHours
+                    );
+                });
+        } catch (DeploymentConflictException $e) {
+            Log::warning('[continuous-delivery] Active deployment exists', [
+                'environment' => $e->environment,
+                'active_uuid' => $e->getActiveDeploymentUuid(),
+            ]);
+
+            return response()->json([
+                'error' => 'Active deployment in progress',
+                'active_deployment' => $e->getActiveDeploymentUuid(),
+            ], 409);
+        }
 
         Log::info('[continuous-delivery] Deployment created', [
             'uuid' => $deployment->uuid,

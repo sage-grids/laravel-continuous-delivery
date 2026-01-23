@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use SageGrids\ContinuousDelivery\Http\Controllers\ApprovalController;
 use SageGrids\ContinuousDelivery\Http\Controllers\DeployController;
+use SageGrids\ContinuousDelivery\Http\Controllers\HealthController;
 
 /*
 |--------------------------------------------------------------------------
@@ -28,16 +29,29 @@ Route::get(
 
 /*
 |--------------------------------------------------------------------------
-| Approval Routes (token-based, no auth required)
+| Health Check Route
 |--------------------------------------------------------------------------
 */
 
 Route::get(
-    '/deploy/approve/{token}',
-    [ApprovalController::class, 'approve']
-)->name('continuous-delivery.approve');
+    '/deploy/health',
+    [HealthController::class, 'check']
+)->name('continuous-delivery.health');
 
-Route::get(
-    '/deploy/reject/{token}',
-    [ApprovalController::class, 'reject']
-)->name('continuous-delivery.reject');
+/*
+|--------------------------------------------------------------------------
+| Approval Routes (token-based, no auth required)
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['throttle:cd-approval'])->group(function () {
+    Route::get(
+        '/deploy/approve/{token}',
+        [ApprovalController::class, 'approve']
+    )->name('continuous-delivery.approve');
+
+    Route::get(
+        '/deploy/reject/{token}',
+        [ApprovalController::class, 'reject']
+    )->name('continuous-delivery.reject');
+});

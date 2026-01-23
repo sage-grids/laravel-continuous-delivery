@@ -40,8 +40,18 @@ class PendingCommand extends Command
         );
 
         $this->newLine();
-        $this->line('To approve: <comment>php artisan deploy:approve {uuid}</comment>');
-        $this->line('To reject:  <comment>php artisan deploy:reject {uuid}</comment>');
+        $this->line('Commands:');
+        $this->line('  <comment>php artisan deploy:approve {uuid}</comment>  Approve deployment');
+        $this->line('  <comment>php artisan deploy:reject {uuid}</comment>   Reject deployment');
+
+        // Show copy-friendly commands for easy execution
+        if ($deployments->count() > 0) {
+            $this->newLine();
+            $this->line('<fg=gray>Copy-paste examples:</>');
+            foreach ($deployments->take(3) as $deployment) {
+                $this->line("  <fg=cyan>php artisan deploy:approve {$deployment->uuid}</>");
+            }
+        }
 
         return self::SUCCESS;
     }

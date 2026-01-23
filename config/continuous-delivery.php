@@ -81,6 +81,7 @@ return [
             'enabled' => env('CD_SLACK_ENABLED', false),
             'webhook_url' => env('CD_SLACK_WEBHOOK'),
             'channel' => env('CD_SLACK_CHANNEL', '#deploys'),
+            'use_block_kit' => env('CD_SLACK_USE_BLOCK_KIT', true),
         ],
     ],
 

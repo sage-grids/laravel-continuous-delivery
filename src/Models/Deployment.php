@@ -41,6 +41,14 @@ class Deployment extends Model
      */
     public function getConnectionName(): ?string
     {
+        return static::getDeploymentConnection();
+    }
+
+    /**
+     * Get the deployment database connection name.
+     */
+    public static function getDeploymentConnection(): ?string
+    {
         $dbPath = config('continuous-delivery.storage.database');
 
         return $dbPath ? 'continuous-delivery' : config('database.default');
@@ -56,6 +64,18 @@ class Deployment extends Model
         static::creating(function (Deployment $deployment) {
             if (empty($deployment->uuid)) {
                 $deployment->uuid = (string) Str::uuid();
+            }
+
+            // Auto-compute approval token hash
+            if (!empty($deployment->approval_token) && empty($deployment->approval_token_hash)) {
+                $deployment->approval_token_hash = hash('sha256', $deployment->approval_token);
+            }
+        });
+
+        static::updating(function (Deployment $deployment) {
+            // Update hash when token changes
+            if ($deployment->isDirty('approval_token') && !empty($deployment->approval_token)) {
+                $deployment->approval_token_hash = hash('sha256', $deployment->approval_token);
             }
         });
     }
@@ -74,6 +94,24 @@ class Deployment extends Model
     public function routeNotificationForSlack(): ?string
     {
         return config('continuous-delivery.notifications.slack.webhook_url');
+    }
+
+    /**
+     * Send a notification with error handling.
+     */
+    public function sendNotification($notification): bool
+    {
+        try {
+            $this->notify($notification);
+            return true;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[continuous-delivery] Failed to send notification', [
+                'deployment' => $this->uuid,
+                'notification' => get_class($notification),
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
     }
 
     /*
@@ -367,6 +405,7 @@ class Deployment extends Model
         int $approvalTimeoutHours = 2
     ): self {
         $config = config("continuous-delivery.environments.{$environment}");
+        $approvalToken = $requiresApproval ? Str::random(64) : null;
 
         return self::create([
             'environment' => $environment,
@@ -379,10 +418,33 @@ class Deployment extends Model
             'mode' => request('mode', 'simple'),
             'envoy_story' => $config['envoy_story'] ?? $environment,
             'status' => $requiresApproval ? self::STATUS_PENDING_APPROVAL : self::STATUS_QUEUED,
-            'approval_token' => $requiresApproval ? Str::random(64) : null,
+            'approval_token' => $approvalToken,
+            'approval_token_hash' => $approvalToken ? hash('sha256', $approvalToken) : null,
             'approval_expires_at' => $requiresApproval ? now()->addHours($approvalTimeoutHours) : null,
             'queued_at' => $requiresApproval ? null : now(),
             'payload' => $payload,
         ]);
+    }
+
+    /**
+     * Find a deployment by its approval token using hash lookup.
+     */
+    public static function findByApprovalToken(string $token): ?self
+    {
+        if (strlen($token) !== 64) {
+            return null;
+        }
+
+        $tokenHash = hash('sha256', $token);
+
+        // First try hash lookup (new records)
+        $deployment = static::where('approval_token_hash', $tokenHash)->first();
+
+        if ($deployment) {
+            return $deployment;
+        }
+
+        // Fallback to direct token lookup for legacy records (pre-migration)
+        return static::where('approval_token', $token)->first();
     }
 }

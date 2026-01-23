@@ -38,13 +38,14 @@ return new class extends Migration
 
             // Deployment config
             $table->string('mode', 50)->default('simple');
-            $table->string('envoy_story', 50);
+            $table->string('envoy_story', 50)->default('default');
 
             // Status workflow
             $table->string('status', 50)->default('pending_approval');
 
             // Approval workflow
             $table->string('approval_token', 64)->nullable()->index();
+            $table->string('approval_token_hash', 64)->nullable()->index();
             $table->timestamp('approval_expires_at')->nullable();
             $table->string('approved_by', 255)->nullable();
             $table->timestamp('approved_at')->nullable();

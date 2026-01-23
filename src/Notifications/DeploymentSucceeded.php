@@ -22,10 +22,30 @@ class DeploymentSucceeded extends Notification
 
     public function toSlack(object $notifiable): array
     {
+        $useBlockKit = config('continuous-delivery.notifications.slack.use_block_kit', true);
+        $duration = $this->deployment->duration_for_humans ?? 'Unknown';
+
+        if ($useBlockKit) {
+            $message = $this->formatSlackBlocks('✅ Deployment Succeeded', '#28a745');
+            $message['text'] = 'Deployment Succeeded';
+
+            // Add duration block
+            $message['blocks'][] = [
+                'type' => 'section',
+                'text' => [
+                    'type' => 'mrkdwn',
+                    'text' => "⏱️ *Duration:* {$duration}",
+                ],
+            ];
+
+            return $message;
+        }
+
+        // Fallback to legacy format
         $fields = $this->formatDetailsForSlack();
         $fields[] = [
             'title' => 'Duration',
-            'value' => $this->deployment->duration_for_humans ?? 'Unknown',
+            'value' => $duration,
             'short' => true,
         ];
 

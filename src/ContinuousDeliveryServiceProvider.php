@@ -2,14 +2,19 @@
 
 namespace SageGrids\ContinuousDelivery;
 
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use SageGrids\ContinuousDelivery\Console\ApproveCommand;
+use SageGrids\ContinuousDelivery\Console\CleanupCommand;
 use SageGrids\ContinuousDelivery\Console\ExpireCommand;
 use SageGrids\ContinuousDelivery\Console\InstallCommand;
 use SageGrids\ContinuousDelivery\Console\PendingCommand;
 use SageGrids\ContinuousDelivery\Console\RejectCommand;
+use SageGrids\ContinuousDelivery\Console\RollbackCommand;
 use SageGrids\ContinuousDelivery\Console\StatusCommand;
 
 class ContinuousDeliveryServiceProvider extends ServiceProvider
@@ -32,12 +37,23 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->registerRateLimiting();
         $this->registerPublishables();
         $this->registerRoutes();
         $this->registerMigrations();
         $this->registerCommands();
         $this->registerViews();
         $this->registerScheduler();
+    }
+
+    /**
+     * Register rate limiting for approval routes.
+     */
+    protected function registerRateLimiting(): void
+    {
+        RateLimiter::for('cd-approval', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip());
+        });
     }
 
     /**
@@ -151,6 +167,8 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
             RejectCommand::class,
             StatusCommand::class,
             ExpireCommand::class,
+            CleanupCommand::class,
+            RollbackCommand::class,
         ]);
     }
 

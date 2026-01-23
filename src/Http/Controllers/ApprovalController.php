@@ -18,7 +18,7 @@ class ApprovalController extends Controller
      */
     public function approve(string $token, Request $request): Response
     {
-        $deployment = $this->findDeployment($token);
+        $deployment = $this->findDeployment($token, $request);
 
         if (!$deployment) {
             return $this->renderError(
@@ -74,7 +74,7 @@ class ApprovalController extends Controller
      */
     public function reject(string $token, Request $request): Response
     {
-        $deployment = $this->findDeployment($token);
+        $deployment = $this->findDeployment($token, $request);
 
         if (!$deployment) {
             return $this->renderError(
@@ -120,15 +120,36 @@ class ApprovalController extends Controller
     }
 
     /**
-     * Find deployment by approval token.
+     * Find deployment by approval token using hash lookup.
      */
-    protected function findDeployment(string $token): ?Deployment
+    protected function findDeployment(string $token, Request $request): ?Deployment
     {
         if (strlen($token) !== 64) {
+            $this->logFailedAttempt($request, 'invalid_token_length', $token);
             return null;
         }
 
-        return Deployment::where('approval_token', $token)->first();
+        $deployment = Deployment::findByApprovalToken($token);
+
+        if (!$deployment) {
+            $this->logFailedAttempt($request, 'token_not_found', $token);
+        }
+
+        return $deployment;
+    }
+
+    /**
+     * Log failed approval/rejection attempts.
+     */
+    protected function logFailedAttempt(Request $request, string $reason, string $token): void
+    {
+        Log::warning('[continuous-delivery] Failed approval attempt', [
+            'reason' => $reason,
+            'token_prefix' => substr($token, 0, 8) . '...',
+            'ip' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'referer' => $request->header('Referer'),
+        ]);
     }
 
     /**

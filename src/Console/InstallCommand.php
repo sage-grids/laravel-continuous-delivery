@@ -4,6 +4,8 @@ namespace SageGrids\ContinuousDelivery\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schema;
+use SageGrids\ContinuousDelivery\Models\Deployment;
 
 class InstallCommand extends Command
 {
@@ -55,18 +57,37 @@ class InstallCommand extends Command
             $this->line('  <fg=green>✓</> Published views: <comment>resources/views/vendor/continuous-delivery/</comment>');
         }
 
-        // Run migrations
+        // Run migrations (idempotent check)
         $this->newLine();
         $this->info('Running migrations...');
 
         try {
-            Artisan::call('migrate', [
-                '--path' => 'vendor/sage-grids/laravel-continuous-delivery/database/migrations',
-                '--force' => true,
-            ]);
-            $this->line('  <fg=green>✓</> Migrations completed');
+            $connection = Deployment::resolveConnection();
+
+            // Check if deployments table already exists
+            if (Schema::connection($connection)->hasTable('deployments')) {
+                $this->line('  <fg=yellow>!</> Deployments table already exists, checking for updates...');
+
+                // Check for missing columns and run migrations if needed
+                if (!Schema::connection($connection)->hasColumn('deployments', 'approval_token_hash')) {
+                    Artisan::call('migrate', [
+                        '--path' => 'vendor/sage-grids/laravel-continuous-delivery/database/migrations',
+                        '--force' => true,
+                    ]);
+                    $this->line('  <fg=green>✓</> Applied pending migrations');
+                } else {
+                    $this->line('  <fg=green>✓</> Database is up to date');
+                }
+            } else {
+                Artisan::call('migrate', [
+                    '--path' => 'vendor/sage-grids/laravel-continuous-delivery/database/migrations',
+                    '--force' => true,
+                ]);
+                $this->line('  <fg=green>✓</> Migrations completed');
+            }
         } catch (\Throwable $e) {
-            $this->warn('  <fg=yellow>!</> Migrations skipped (run manually if needed)');
+            $this->warn('  <fg=yellow>!</> Migrations skipped: ' . $e->getMessage());
+            $this->line('     Run migrations manually if needed');
         }
 
         // Show next steps
@@ -107,6 +128,8 @@ class InstallCommand extends Command
         $this->line('   <comment>php artisan deploy:approve</comment>     Approve a deployment');
         $this->line('   <comment>php artisan deploy:reject</comment>      Reject a deployment');
         $this->line('   <comment>php artisan deploy:status</comment>      View deployment status');
+        $this->line('   <comment>php artisan deploy:cleanup</comment>     Clean up old deployments');
+        $this->line('   <comment>php artisan deploy:rollback</comment>    Rollback to previous deployment');
         $this->newLine();
 
         return self::SUCCESS;

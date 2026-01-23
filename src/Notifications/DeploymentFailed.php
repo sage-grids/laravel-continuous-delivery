@@ -30,17 +30,63 @@ class DeploymentFailed extends Notification
 
     public function toSlack(object $notifiable): array
     {
+        $useBlockKit = config('continuous-delivery.notifications.slack.use_block_kit', true);
+        $exitCode = $this->deployment->exit_code ?? 'Unknown';
+        $output = $this->deployment->output ?? 'No output captured';
+
+        if (strlen($output) > 500) {
+            $output = '...' . substr($output, -500);
+        }
+
+        if ($useBlockKit) {
+            $message = $this->formatSlackBlocks('❌ Deployment Failed', '#dc3545');
+            $message['text'] = 'Deployment Failed';
+
+            // Add exit code
+            $message['blocks'][] = [
+                'type' => 'section',
+                'text' => [
+                    'type' => 'mrkdwn',
+                    'text' => "🚫 *Exit Code:* `{$exitCode}`",
+                ],
+            ];
+
+            // Add output block
+            $message['blocks'][] = [
+                'type' => 'section',
+                'text' => [
+                    'type' => 'mrkdwn',
+                    'text' => "*Output:*\n```{$output}```",
+                ],
+            ];
+
+            // Add action button
+            $message['blocks'][] = [
+                'type' => 'actions',
+                'elements' => [
+                    [
+                        'type' => 'button',
+                        'text' => [
+                            'type' => 'plain_text',
+                            'text' => '📊 View Details',
+                            'emoji' => true,
+                        ],
+                        'url' => $this->deployment->getStatusUrl(),
+                        'action_id' => 'view_details',
+                    ],
+                ],
+            ];
+
+            return $message;
+        }
+
+        // Fallback to legacy format
         $fields = $this->formatDetailsForSlack();
         $fields[] = [
             'title' => 'Exit Code',
-            'value' => (string) ($this->deployment->exit_code ?? 'Unknown'),
+            'value' => (string) $exitCode,
             'short' => true,
         ];
-
-        $output = $this->deployment->output ?? 'No output captured';
-        if (strlen($output) > 500) {
-            $output = substr($output, -500) . '...';
-        }
 
         return [
             'text' => 'Deployment Failed',
