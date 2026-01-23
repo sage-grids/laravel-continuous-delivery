@@ -1,4 +1,4 @@
-# sage-grids/continuous-delivery
+# sage-grids/laravel-continuous-delivery
 
 Multi-environment continuous delivery for Laravel with GitHub webhooks, Laravel Envoy deployment, and human approval workflows.
 
@@ -34,7 +34,7 @@ Create release → Webhook → Approval request → Approve → Deploy → Notif
 ### 1. Install
 
 ```bash
-composer require sage-grids/continuous-delivery
+composer require sage-grids/laravel-continuous-delivery
 php artisan vendor:publish --tag=continuous-delivery
 php artisan migrate --database=continuous-delivery
 ```

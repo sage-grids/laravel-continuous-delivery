@@ -118,7 +118,7 @@ protected function setupDatabase(): void
     // Run package migrations
     $this->call('migrate', [
         '--database' => 'continuous-delivery',
-        '--path' => 'vendor/sage-grids/continuous-delivery/database/migrations',
+        '--path' => 'vendor/sage-grids/laravel-continuous-delivery/database/migrations',
         '--force' => true,
     ]);
 }
@@ -142,7 +142,7 @@ $this->publishes([
 ## Directory Structure After Cleanup
 
 ```
-packages/sage-grids/continuous-delivery/
+packages/sage-grids/laravel-continuous-delivery/
 ├── composer.json
 ├── LICENSE
 ├── README.md
@@ -205,11 +205,11 @@ packages/sage-grids/continuous-delivery/
 
 ```bash
 # Delete old bash scripts
-rm -rf packages/sage-grids/continuous-delivery/resources/scripts
-rm -rf packages/sage-grids/continuous-delivery/scripts
+rm -rf packages/sage-grids/laravel-continuous-delivery/resources/scripts
+rm -rf packages/sage-grids/laravel-continuous-delivery/scripts
 
 # Verify structure
-find packages/sage-grids/continuous-delivery -type f -name "*.sh"
+find packages/sage-grids/laravel-continuous-delivery -type f -name "*.sh"
 # Should return nothing
 ```
 

@@ -1,6 +1,6 @@
 # Implementation Tasks Overview
 
-## Project: sage-grids/continuous-delivery v2.0
+## Project: sage-grids/laravel-continuous-delivery v2.0
 
 Transform the package from a simple bash-script-based deployment tool into a multi-environment continuous delivery system with Laravel Envoy and human approval workflows.
 

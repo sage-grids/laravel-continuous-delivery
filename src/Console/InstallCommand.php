@@ -61,7 +61,7 @@ class InstallCommand extends Command
 
         try {
             Artisan::call('migrate', [
-                '--path' => 'vendor/sage-grids/continuous-delivery/database/migrations',
+                '--path' => 'vendor/sage-grids/laravel-continuous-delivery/database/migrations',
                 '--force' => true,
             ]);
             $this->line('  <fg=green>✓</> Migrations completed');

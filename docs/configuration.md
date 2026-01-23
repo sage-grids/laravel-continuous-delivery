@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Complete configuration guide for sage-grids/continuous-delivery.
+Complete configuration guide for sage-grids/laravel-continuous-delivery.
 
 ## Publishing Configuration
 

@@ -18,7 +18,7 @@ Complete guide to setting up continuous delivery on your servers.
 ### 1. Install Package
 
 ```bash
-composer require sage-grids/continuous-delivery
+composer require sage-grids/laravel-continuous-delivery
 ```
 
 ### 2. Publish Assets

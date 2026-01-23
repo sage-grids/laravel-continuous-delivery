@@ -18,7 +18,7 @@ Add Laravel Envoy as a dependency and update package metadata for v2.0.
 
 ```json
 {
-    "name": "sage-grids/continuous-delivery",
+    "name": "sage-grids/laravel-continuous-delivery",
     "description": "Multi-environment continuous delivery for Laravel with GitHub webhooks, Envoy deployment, and human approval workflows",
     "version": "2.0.0",
     "type": "library",

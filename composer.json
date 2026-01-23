@@ -1,8 +1,14 @@
 {
-    "name": "sage-grids/continuous-delivery",
+    "name": "sage-grids/laravel-continuous-delivery",
     "description": "Multi-environment continuous delivery for Laravel with GitHub webhooks, Envoy deployment, and human approval workflows.",
     "type": "library",
     "license": "MIT",
+    "authors": [
+        {
+            "name": "Ilyas Serter",
+            "homepage": "https://www.iserter.com"
+        }
+    ],
     "require": {
         "php": "^8.2",
         "illuminate/support": "^10.0|^11.0|^12.0",

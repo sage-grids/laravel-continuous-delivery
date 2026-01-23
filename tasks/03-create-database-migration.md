@@ -139,7 +139,7 @@ The migration runs on the isolated SQLite connection:
 // In ServiceProvider or InstallCommand
 Artisan::call('migrate', [
     '--database' => 'continuous-delivery',
-    '--path' => 'vendor/sage-grids/continuous-delivery/database/migrations',
+    '--path' => 'vendor/sage-grids/laravel-continuous-delivery/database/migrations',
     '--force' => true,
 ]);
 ```
