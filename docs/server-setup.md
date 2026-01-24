@@ -38,7 +38,7 @@ sudo chmod 755 /var/lib/sage-grids-cd
 ### 4. Run Migrations
 
 ```bash
-php artisan deploy:migrate
+php artisan deployer:migrate
 ```
 
 ### 5. Configure Environment
@@ -273,13 +273,12 @@ CD_APP_DIR=/home/staging.example.com/app/current
 CD_DATABASE_PATH=/var/lib/sage-grids-cd/deployments.sqlite
 
 # Environment (staging only)
-CD_STAGING_ENABLED=true
 CD_STAGING_BRANCH=develop
-CD_PRODUCTION_ENABLED=false
+CD_STRATEGY=simple
 
 # Notifications
 CD_TELEGRAM_ENABLED=true
-CD_TELEGRAM_BOT_ID=123456789
+CD_TELEGRAM_BOT_TOKEN=123456789
 CD_TELEGRAM_CHAT_ID=-100123456789
 
 # Queue
@@ -299,14 +298,13 @@ CD_APP_DIR=/home/example.com/app/current
 CD_DATABASE_PATH=/var/lib/sage-grids-cd/deployments.sqlite
 
 # Environment (production only)
-CD_STAGING_ENABLED=false
-CD_PRODUCTION_ENABLED=true
-CD_PRODUCTION_APPROVAL=true
+CD_STRATEGY=advanced
 CD_PRODUCTION_APPROVAL_TIMEOUT=2
+CD_KEEP_RELEASES=5
 
 # Notifications (both channels for production)
 CD_TELEGRAM_ENABLED=true
-CD_TELEGRAM_BOT_ID=123456789
+CD_TELEGRAM_BOT_TOKEN=123456789
 CD_TELEGRAM_CHAT_ID=-100123456789
 CD_SLACK_ENABLED=true
 CD_SLACK_WEBHOOK=https://hooks.slack.com/...

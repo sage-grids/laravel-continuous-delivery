@@ -5,7 +5,7 @@ namespace SageGrids\ContinuousDelivery\Tests\Feature;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\Test;
 use SageGrids\ContinuousDelivery\Jobs\RunDeployJob;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Tests\TestCase;
 
 class WebhookTest extends TestCase
@@ -56,11 +56,9 @@ class WebhookTest extends TestCase
         $response->assertStatus(202);
         $response->assertJsonStructure([
             'message',
-            'deployment_id',
-            'status',
+            'deployments',
         ]);
 
-        $this->assertEquals('queued', $response->json('status'));
         Queue::assertPushed(RunDeployJob::class);
     }
 
@@ -78,7 +76,7 @@ class WebhookTest extends TestCase
         ], $payloadJson);
 
         $response->assertStatus(200);
-        $response->assertJson(['message' => 'Branch not configured']);
+        $response->assertJson(['message' => 'No matching triggers found']);
         Queue::assertNotPushed(RunDeployJob::class);
     }
 
@@ -98,20 +96,16 @@ class WebhookTest extends TestCase
         $response->assertStatus(202);
         $response->assertJsonStructure([
             'message',
-            'deployment_id',
-            'status',
-            'approve_url',
-            'reject_url',
-            'expires_at',
+            'deployments',
         ]);
 
-        $this->assertEquals('pending_approval', $response->json('status'));
-        Queue::assertNotPushed(RunDeployJob::class);
+        // Check that a deployment was created with pending_approval status
+        $this->assertDatabaseHas('deployer_deployments', [
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
+            'trigger_name' => 'production',
+        ]);
 
-        $deployment = Deployment::where('uuid', $response->json('deployment_id'))->first();
-        $this->assertNotNull($deployment);
-        $this->assertEquals('production', $deployment->environment);
-        $this->assertNotNull($deployment->approval_token);
+        Queue::assertNotPushed(RunDeployJob::class);
     }
 
     #[Test]
@@ -170,12 +164,13 @@ class WebhookTest extends TestCase
     public function it_rejects_when_active_deployment_exists(): void
     {
         // Create an active deployment
-        Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'existing123',
-            'status' => Deployment::STATUS_RUNNING,
+            'status' => DeployerDeployment::STATUS_RUNNING,
         ]);
 
         $payload = $this->createGithubPushPayload('develop');
@@ -193,52 +188,16 @@ class WebhookTest extends TestCase
     }
 
     #[Test]
-    public function it_filters_by_repository_when_configured(): void
-    {
-        config(['continuous-delivery.github.only_repo_full_name' => 'correct/repo']);
-
-        $payload = $this->createGithubPushPayload('develop', 'abc123', 'user', 'wrong/repo');
-        $payloadJson = json_encode($payload);
-        $signature = $this->generateGithubSignature($payloadJson, 'test-secret');
-
-        $response = $this->call('POST', '/api/deploy/github', [], [], [], [
-            'HTTP_X_HUB_SIGNATURE_256' => $signature,
-            'HTTP_X_GITHUB_EVENT' => 'push',
-            'CONTENT_TYPE' => 'application/json',
-        ], $payloadJson);
-
-        $response->assertStatus(200);
-        $response->assertJson(['message' => 'Repository not configured']);
-    }
-
-    #[Test]
-    public function it_allows_matching_repository(): void
-    {
-        config(['continuous-delivery.github.only_repo_full_name' => 'owner/repo']);
-
-        $payload = $this->createGithubPushPayload('develop', 'abc123', 'user', 'owner/repo');
-        $payloadJson = json_encode($payload);
-        $signature = $this->generateGithubSignature($payloadJson, 'test-secret');
-
-        $response = $this->call('POST', '/api/deploy/github', [], [], [], [
-            'HTTP_X_HUB_SIGNATURE_256' => $signature,
-            'HTTP_X_GITHUB_EVENT' => 'push',
-            'CONTENT_TYPE' => 'application/json',
-        ], $payloadJson);
-
-        $response->assertStatus(202);
-    }
-
-    #[Test]
     public function it_returns_deployment_status(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'abc1234567890',
             'author' => 'testuser',
-            'status' => Deployment::STATUS_SUCCESS,
+            'status' => DeployerDeployment::STATUS_SUCCESS,
             'started_at' => now()->subMinutes(5),
             'completed_at' => now(),
             'duration_seconds' => 300,
@@ -250,7 +209,7 @@ class WebhookTest extends TestCase
         $response->assertStatus(200);
         $response->assertJsonStructure([
             'uuid',
-            'environment',
+            'app',
             'trigger',
             'status',
             'commit',
@@ -263,7 +222,7 @@ class WebhookTest extends TestCase
         ]);
         $response->assertJson([
             'status' => 'success',
-            'environment' => 'staging',
+            'app' => 'default',
         ]);
     }
 

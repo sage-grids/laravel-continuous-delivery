@@ -4,7 +4,7 @@ namespace SageGrids\ContinuousDelivery\Tests\Unit;
 
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Tests\TestCase;
 
 class DeploymentTest extends TestCase
@@ -12,12 +12,13 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_generates_uuid_on_creation(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_QUEUED,
+            'status' => DeployerDeployment::STATUS_QUEUED,
         ]);
 
         $this->assertNotNull($deployment->uuid);
@@ -29,13 +30,14 @@ class DeploymentTest extends TestCase
     {
         $uuid = (string) Str::uuid();
 
-        $deployment = Deployment::create([
+        $deployment = DeployerDeployment::create([
             'uuid' => $uuid,
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_QUEUED,
+            'status' => DeployerDeployment::STATUS_QUEUED,
         ]);
 
         $this->assertEquals($uuid, $deployment->uuid);
@@ -44,7 +46,7 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_correctly_identifies_pending_approval_status(): void
     {
-        $deployment = new Deployment(['status' => Deployment::STATUS_PENDING_APPROVAL]);
+        $deployment = new DeployerDeployment(['status' => DeployerDeployment::STATUS_PENDING_APPROVAL]);
 
         $this->assertTrue($deployment->isPendingApproval());
         $this->assertFalse($deployment->isApproved());
@@ -56,7 +58,7 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_correctly_identifies_queued_status(): void
     {
-        $deployment = new Deployment(['status' => Deployment::STATUS_QUEUED]);
+        $deployment = new DeployerDeployment(['status' => DeployerDeployment::STATUS_QUEUED]);
 
         $this->assertTrue($deployment->isQueued());
         $this->assertTrue($deployment->isActive());
@@ -66,7 +68,7 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_correctly_identifies_running_status(): void
     {
-        $deployment = new Deployment(['status' => Deployment::STATUS_RUNNING]);
+        $deployment = new DeployerDeployment(['status' => DeployerDeployment::STATUS_RUNNING]);
 
         $this->assertTrue($deployment->isRunning());
         $this->assertTrue($deployment->isActive());
@@ -76,7 +78,7 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_correctly_identifies_success_status(): void
     {
-        $deployment = new Deployment(['status' => Deployment::STATUS_SUCCESS]);
+        $deployment = new DeployerDeployment(['status' => DeployerDeployment::STATUS_SUCCESS]);
 
         $this->assertTrue($deployment->isSuccess());
         $this->assertTrue($deployment->isComplete());
@@ -86,7 +88,7 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_correctly_identifies_failed_status(): void
     {
-        $deployment = new Deployment(['status' => Deployment::STATUS_FAILED]);
+        $deployment = new DeployerDeployment(['status' => DeployerDeployment::STATUS_FAILED]);
 
         $this->assertTrue($deployment->isFailed());
         $this->assertTrue($deployment->isComplete());
@@ -96,7 +98,7 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_correctly_identifies_rejected_status(): void
     {
-        $deployment = new Deployment(['status' => Deployment::STATUS_REJECTED]);
+        $deployment = new DeployerDeployment(['status' => DeployerDeployment::STATUS_REJECTED]);
 
         $this->assertTrue($deployment->isRejected());
         $this->assertTrue($deployment->isComplete());
@@ -106,7 +108,7 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_correctly_identifies_expired_status(): void
     {
-        $deployment = new Deployment(['status' => Deployment::STATUS_EXPIRED]);
+        $deployment = new DeployerDeployment(['status' => DeployerDeployment::STATUS_EXPIRED]);
 
         $this->assertTrue($deployment->isExpired());
         $this->assertTrue($deployment->isComplete());
@@ -116,18 +118,19 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_can_approve_pending_deployment(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_expires_at' => now()->addHours(2),
         ]);
 
         $deployment->approve('test@example.com');
 
-        $this->assertEquals(Deployment::STATUS_QUEUED, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_QUEUED, $deployment->status);
         $this->assertEquals('test@example.com', $deployment->approved_by);
         $this->assertNotNull($deployment->approved_at);
         $this->assertNotNull($deployment->queued_at);
@@ -136,12 +139,13 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_cannot_approve_expired_deployment(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_expires_at' => now()->subHour(),
         ]);
 
@@ -155,17 +159,18 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_can_reject_pending_deployment(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
         ]);
 
         $deployment->reject('test@example.com', 'Not ready for release');
 
-        $this->assertEquals(Deployment::STATUS_REJECTED, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_REJECTED, $deployment->status);
         $this->assertEquals('test@example.com', $deployment->rejected_by);
         $this->assertEquals('Not ready for release', $deployment->rejection_reason);
         $this->assertNotNull($deployment->rejected_at);
@@ -174,12 +179,13 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_cannot_reject_already_approved_deployment(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_APPROVED,
+            'status' => DeployerDeployment::STATUS_APPROVED,
         ]);
 
         $this->assertFalse($deployment->canBeRejected());
@@ -191,35 +197,37 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_can_mark_running(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_QUEUED,
+            'status' => DeployerDeployment::STATUS_QUEUED,
         ]);
 
         $deployment->markRunning();
 
-        $this->assertEquals(Deployment::STATUS_RUNNING, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_RUNNING, $deployment->status);
         $this->assertNotNull($deployment->started_at);
     }
 
     #[Test]
     public function it_can_mark_success(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_RUNNING,
+            'status' => DeployerDeployment::STATUS_RUNNING,
             'started_at' => now()->subMinutes(5),
         ]);
 
         $deployment->markSuccess('Deployment output here');
 
-        $this->assertEquals(Deployment::STATUS_SUCCESS, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_SUCCESS, $deployment->status);
         $this->assertEquals('Deployment output here', $deployment->output);
         $this->assertEquals(0, $deployment->exit_code);
         $this->assertNotNull($deployment->completed_at);
@@ -229,18 +237,19 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_can_mark_failed(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_RUNNING,
+            'status' => DeployerDeployment::STATUS_RUNNING,
             'started_at' => now()->subMinutes(5),
         ]);
 
         $deployment->markFailed('Error: deployment failed', 1);
 
-        $this->assertEquals(Deployment::STATUS_FAILED, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_FAILED, $deployment->status);
         $this->assertEquals('Error: deployment failed', $deployment->output);
         $this->assertEquals(1, $deployment->exit_code);
         $this->assertNotNull($deployment->completed_at);
@@ -249,39 +258,41 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_can_expire_pending_deployment(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
         ]);
 
         $deployment->expire();
 
-        $this->assertEquals(Deployment::STATUS_EXPIRED, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_EXPIRED, $deployment->status);
     }
 
     #[Test]
     public function expire_does_nothing_for_non_pending(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_QUEUED,
+            'status' => DeployerDeployment::STATUS_QUEUED,
         ]);
 
         $deployment->expire();
 
-        $this->assertEquals(Deployment::STATUS_QUEUED, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_QUEUED, $deployment->status);
     }
 
     #[Test]
     public function it_computes_short_commit_sha(): void
     {
-        $deployment = new Deployment([
+        $deployment = new DeployerDeployment([
             'commit_sha' => 'abc1234567890def',
         ]);
 
@@ -291,174 +302,156 @@ class DeploymentTest extends TestCase
     #[Test]
     public function it_computes_duration_for_humans(): void
     {
-        $deployment = new Deployment(['duration_seconds' => 45]);
+        $deployment = new DeployerDeployment(['duration_seconds' => 45]);
         $this->assertEquals('45 seconds', $deployment->duration_for_humans);
 
-        $deployment = new Deployment(['duration_seconds' => 125]);
+        $deployment = new DeployerDeployment(['duration_seconds' => 125]);
         $this->assertEquals('2m 5s', $deployment->duration_for_humans);
 
-        $deployment = new Deployment(['duration_seconds' => null]);
+        $deployment = new DeployerDeployment(['duration_seconds' => null]);
         $this->assertNull($deployment->duration_for_humans);
-    }
-
-    #[Test]
-    public function it_creates_from_webhook_without_approval(): void
-    {
-        $payload = [
-            'after' => 'abc1234567890',
-            'head_commit' => ['message' => 'Test commit'],
-            'sender' => ['login' => 'testuser'],
-            'repository' => ['full_name' => 'owner/repo'],
-        ];
-
-        $deployment = Deployment::createFromWebhook(
-            'staging',
-            'branch_push',
-            'develop',
-            $payload,
-            requiresApproval: false
-        );
-
-        $this->assertEquals('staging', $deployment->environment);
-        $this->assertEquals(Deployment::STATUS_QUEUED, $deployment->status);
-        $this->assertNull($deployment->approval_token);
-        $this->assertNull($deployment->approval_expires_at);
-        $this->assertNotNull($deployment->queued_at);
-    }
-
-    #[Test]
-    public function it_creates_from_webhook_with_approval(): void
-    {
-        $payload = [
-            'release' => [
-                'target_commitish' => 'abc1234567890',
-                'body' => 'Release notes',
-            ],
-            'sender' => ['login' => 'releaser'],
-            'repository' => ['full_name' => 'owner/repo'],
-        ];
-
-        $deployment = Deployment::createFromWebhook(
-            'production',
-            'release',
-            'v1.0.0',
-            $payload,
-            requiresApproval: true,
-            approvalTimeoutHours: 4
-        );
-
-        $this->assertEquals('production', $deployment->environment);
-        $this->assertEquals(Deployment::STATUS_PENDING_APPROVAL, $deployment->status);
-        $this->assertNotNull($deployment->approval_token);
-        $this->assertEquals(64, strlen($deployment->approval_token));
-        $this->assertNotNull($deployment->approval_expires_at);
-        $this->assertNull($deployment->queued_at);
     }
 
     #[Test]
     public function pending_scope_returns_only_pending_approvals(): void
     {
-        Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc123',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
         ]);
 
-        Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'def456',
-            'status' => Deployment::STATUS_QUEUED,
+            'status' => DeployerDeployment::STATUS_QUEUED,
         ]);
 
-        $pending = Deployment::pending()->get();
+        $pending = DeployerDeployment::pending()->get();
 
         $this->assertCount(1, $pending);
-        $this->assertEquals(Deployment::STATUS_PENDING_APPROVAL, $pending->first()->status);
+        $this->assertEquals(DeployerDeployment::STATUS_PENDING_APPROVAL, $pending->first()->status);
     }
 
     #[Test]
     public function active_scope_returns_active_deployments(): void
     {
-        Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc123',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
         ]);
 
-        Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'def456',
-            'status' => Deployment::STATUS_RUNNING,
+            'status' => DeployerDeployment::STATUS_RUNNING,
         ]);
 
-        Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'ghi789',
-            'status' => Deployment::STATUS_SUCCESS,
+            'status' => DeployerDeployment::STATUS_SUCCESS,
         ]);
 
-        $active = Deployment::active()->get();
+        $active = DeployerDeployment::active()->get();
 
         $this->assertCount(2, $active);
     }
 
     #[Test]
-    public function for_environment_scope_filters_by_environment(): void
+    public function for_app_scope_filters_by_app_key(): void
     {
-        Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        DeployerDeployment::create([
+            'app_key' => 'app1',
+            'app_name' => 'App One',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc123',
-            'status' => Deployment::STATUS_QUEUED,
+            'status' => DeployerDeployment::STATUS_QUEUED,
         ]);
 
-        Deployment::create([
-            'environment' => 'staging',
-            'trigger_type' => 'branch_push',
+        DeployerDeployment::create([
+            'app_key' => 'app2',
+            'app_name' => 'App Two',
+            'trigger_name' => 'staging',
             'trigger_ref' => 'develop',
             'commit_sha' => 'def456',
-            'status' => Deployment::STATUS_QUEUED,
+            'status' => DeployerDeployment::STATUS_QUEUED,
         ]);
 
-        $production = Deployment::forEnvironment('production')->get();
+        $app1Deployments = DeployerDeployment::forApp('app1')->get();
 
-        $this->assertCount(1, $production);
-        $this->assertEquals('production', $production->first()->environment);
+        $this->assertCount(1, $app1Deployments);
+        $this->assertEquals('app1', $app1Deployments->first()->app_key);
+    }
+
+    #[Test]
+    public function for_trigger_scope_filters_by_trigger_name(): void
+    {
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
+            'trigger_ref' => 'v1.0.0',
+            'commit_sha' => 'abc123',
+            'status' => DeployerDeployment::STATUS_QUEUED,
+        ]);
+
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
+            'trigger_ref' => 'develop',
+            'commit_sha' => 'def456',
+            'status' => DeployerDeployment::STATUS_QUEUED,
+        ]);
+
+        $prodDeployments = DeployerDeployment::forTrigger('production')->get();
+
+        $this->assertCount(1, $prodDeployments);
+        $this->assertEquals('production', $prodDeployments->first()->trigger_name);
     }
 
     #[Test]
     public function expired_scope_returns_expired_pending(): void
     {
-        Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc123',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_expires_at' => now()->subHour(),
         ]);
 
-        Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.1',
             'commit_sha' => 'def456',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_expires_at' => now()->addHour(),
         ]);
 
-        $expired = Deployment::expired()->get();
+        $expired = DeployerDeployment::expired()->get();
 
         $this->assertCount(1, $expired);
         $this->assertEquals('v1.0.0', $expired->first()->trigger_ref);

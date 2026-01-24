@@ -39,16 +39,16 @@ Commit: abc1234
 
 ```bash
 # List pending deployments
-php artisan deploy:pending
+php artisan deployer:pending
 
 # Approve by UUID (partial match supported)
-php artisan deploy:approve abc123
+php artisan deployer:approve abc123
 
 # Reject with reason
-php artisan deploy:reject abc123 --reason="Not ready for release"
+php artisan deployer:reject abc123 --reason="Not ready for release"
 
 # Check status
-php artisan deploy:status abc123 --output
+php artisan deployer:status abc123 --output
 ```
 
 **Pros:** Audit trail shows shell user, can add rejection reason
@@ -128,12 +128,22 @@ Shows confirmation page with deployment details.
 
 ## Configuration
 
-```env
-# Enable production with approval
-CD_PRODUCTION_ENABLED=true
-CD_PRODUCTION_APPROVAL=true
-CD_PRODUCTION_APPROVAL_TIMEOUT=2  # hours
+Approval settings are defined in your `config/continuous-delivery.php` triggers:
 
+```php
+'triggers' => [
+    [
+        'name' => 'production',
+        'on' => 'release',
+        'auto_deploy' => false,  // This enables approval requirement
+        'approval_timeout' => 2, // Timeout in hours
+    ],
+],
+```
+
+### Global Options
+
+```env
 # Auto-expire pending deployments
 CD_AUTO_EXPIRE=true
 CD_NOTIFY_ON_EXPIRE=true
@@ -185,7 +195,7 @@ Reason: Missing database migration
 ### List Pending
 
 ```bash
-php artisan deploy:pending
+php artisan deployer:pending
 ```
 
 Output:
@@ -196,44 +206,44 @@ Output:
 | abc123...| production  | v1.2.3 | pending_approval| 1h 45m  | 15 min ago |
 +----------+-------------+--------+-----------------+---------+------------+
 
-To approve: php artisan deploy:approve {uuid}
-To reject:  php artisan deploy:reject {uuid}
+To approve: php artisan deployer:approve {uuid}
+To reject:  php artisan deployer:reject {uuid}
 ```
 
 ### Approve
 
 ```bash
 # Full UUID
-php artisan deploy:approve 550e8400-e29b-41d4-a716-446655440000
+php artisan deployer:approve 550e8400-e29b-41d4-a716-446655440000
 
 # Partial UUID (matches start)
-php artisan deploy:approve 550e84
+php artisan deployer:approve 550e84
 
 # Skip confirmation
-php artisan deploy:approve 550e84 --force
+php artisan deployer:approve 550e84 --force
 ```
 
 ### Reject
 
 ```bash
 # With reason
-php artisan deploy:reject 550e84 --reason="Not ready"
+php artisan deployer:reject 550e84 --reason="Not ready"
 
 # Interactive (prompts for reason)
-php artisan deploy:reject 550e84
+php artisan deployer:reject 550e84
 
 # Skip confirmation
-php artisan deploy:reject 550e84 --reason="Not ready" --force
+php artisan deployer:reject 550e84 --reason="Not ready" --force
 ```
 
 ### Check Status
 
 ```bash
 # Basic status
-php artisan deploy:status 550e84
+php artisan deployer:status 550e84
 
 # With full output
-php artisan deploy:status 550e84 --output
+php artisan deployer:status 550e84 --output
 ```
 
 ---

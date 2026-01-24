@@ -1,15 +1,16 @@
 # sage-grids/laravel-continuous-delivery
 
-Multi-environment continuous delivery for Laravel with GitHub webhooks, Laravel Envoy deployment, and human approval workflows.
+Multi-app continuous delivery for Laravel with GitHub webhooks, Laravel Envoy deployment, and human approval workflows.
 
 ## Features
 
-- **Multi-Environment Support** - Separate staging and production pipelines
+- **Multi-App Support** - Deploy multiple applications from a single installation
+- **Deployment Strategies** - Simple (git pull) or Advanced (releases + symlinks)
 - **GitHub Webhooks** - Trigger deployments from push and release events
 - **Human Approval** - Production deployments require approval via Telegram/Slack/CLI
 - **Laravel Envoy** - Blade-syntax deployment scripts with built-in notifications
 - **Isolated Storage** - Deployment history survives database refreshes
-- **Audit Trail** - Full deployment logging with approver tracking
+- **Rollback Support** - Revert to previous releases with a single command
 
 ---
 
@@ -36,29 +37,53 @@ Create release → Webhook → Approval request → Approve → Deploy → Notif
 ```bash
 composer require sage-grids/laravel-continuous-delivery
 php artisan vendor:publish --tag=continuous-delivery
-php artisan deploy:migrate
+php artisan deployer:migrate
 ```
 
 ### 2. Configure
 
+Edit `config/continuous-delivery.php`:
+
+```php
+'apps' => [
+    'default' => [
+        'name' => 'My App',
+        'repository' => 'owner/repo',
+        'path' => '/var/www/my-app',
+        'strategy' => 'simple', // or 'advanced'
+        
+        // Strategy-specific settings
+        'advanced' => [
+            'keep_releases' => 5,
+        ],
+
+        'triggers' => [
+            [
+                'name' => 'staging',
+                'on' => 'push',
+                'branch' => 'develop',
+                'auto_deploy' => true,
+            ],
+            [
+                'name' => 'production',
+                'on' => 'release',
+                'tag_pattern' => '/^v\d+\.\d+\.\d+$/',
+                'auto_deploy' => false,
+                'approval_timeout' => 2,
+            ],
+        ],
+    ],
+],
+```
+
 Add to `.env`:
 
 ```env
-# Required
 GITHUB_WEBHOOK_SECRET=your-secret-here
-CD_APP_DIR=/path/to/your/app
-
-# Staging (auto-deploy on push to develop)
-CD_STAGING_ENABLED=true
-CD_STAGING_BRANCH=develop
-
-# Production (requires approval)
-CD_PRODUCTION_ENABLED=true
-CD_PRODUCTION_APPROVAL=true
 
 # Notifications
 CD_TELEGRAM_ENABLED=true
-CD_TELEGRAM_BOT_ID=your-bot-id
+CD_TELEGRAM_BOT_TOKEN=your-bot-token
 CD_TELEGRAM_CHAT_ID=your-chat-id
 ```
 
@@ -77,12 +102,71 @@ Go to **Repository Settings → Webhooks → Add webhook**:
 - **Payload URL**: `https://your-app.com/api/deploy/github`
 - **Content type**: `application/json`
 - **Secret**: Same as `GITHUB_WEBHOOK_SECRET`
-- **Events**: Push events (staging) or Releases (production)
+- **Events**: Push events and Releases
 
 ### 5. Start Queue Worker
 
 ```bash
 php artisan queue:work
+```
+
+---
+
+## Deployment Strategies
+
+### Simple Strategy
+
+Git-based in-place deployment:
+
+```
+git pull → composer install → migrate → cache:clear
+```
+
+Best for: Development, staging, simple applications.
+
+### Advanced Strategy
+
+Release-based deployment with symlinks:
+
+```
+releases/
+  20240115120000/   # Old release
+  20240116140000/   # Current release
+shared/
+  storage/
+  .env
+current -> releases/20240116140000
+```
+
+Best for: Production, zero-downtime deployments, easy rollbacks.
+
+---
+
+## CLI Commands
+
+```bash
+# App management
+php artisan deployer:apps                    # List configured apps
+php artisan deployer:setup default           # Set up app directories
+php artisan deployer:releases default        # List releases (advanced)
+
+# Triggering deployments
+php artisan deployer:trigger default staging # Trigger staging deploy
+php artisan deployer:trigger default production --ref=v1.2.3
+
+# Approval workflow
+php artisan deployer:pending                 # List pending approvals
+php artisan deployer:approve abc123          # Approve by UUID
+php artisan deployer:reject abc123           # Reject by UUID
+
+# Status and management
+php artisan deployer:status                  # Recent deployments
+php artisan deployer:status abc123           # Single deployment
+php artisan deployer:rollback default        # Rollback to previous
+
+# Maintenance
+php artisan deployer:expire                  # Expire pending approvals
+php artisan deployer:cleanup --days=90       # Clean old records
 ```
 
 ---
@@ -94,9 +178,9 @@ When a production release is created, you'll receive a notification:
 ```
 🚀 Production Deploy Request
 
-Version: v1.2.3
-Commit: abc123
-Author: @developer
+App: My App
+Trigger: production:v1.2.3
+Commit: abc1234
 
 [✅ Approve] [❌ Reject]
 
@@ -109,53 +193,41 @@ Author: @developer
 
 **2. CLI commands:**
 ```bash
-php artisan deploy:pending           # List pending
-php artisan deploy:approve abc123    # Approve
-php artisan deploy:reject abc123     # Reject
-php artisan deploy:status abc123     # Check status
+php artisan deployer:pending           # List pending
+php artisan deployer:approve abc123    # Approve
+php artisan deployer:reject abc123     # Reject
+php artisan deployer:status abc123     # Check status
 ```
 
 ---
 
-## Configuration
+## Multi-App Configuration
 
-### Environment Variables
+Deploy multiple applications:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GITHUB_WEBHOOK_SECRET` | - | GitHub webhook secret (required) |
-| `CD_APP_DIR` | - | Application directory (required) |
-| `CD_DATABASE_PATH` | `/var/lib/sage-grids-cd/deployments.sqlite` | Isolated database |
-| `CD_STAGING_ENABLED` | `true` | Enable staging deployments |
-| `CD_STAGING_BRANCH` | `develop` | Branch to trigger staging |
-| `CD_PRODUCTION_ENABLED` | `false` | Enable production deployments |
-| `CD_PRODUCTION_APPROVAL` | `true` | Require approval for production |
-| `CD_PRODUCTION_APPROVAL_TIMEOUT` | `2` | Hours before approval expires |
-| `CD_TELEGRAM_ENABLED` | `false` | Enable Telegram notifications |
-| `CD_TELEGRAM_BOT_ID` | - | Telegram bot ID |
-| `CD_TELEGRAM_CHAT_ID` | - | Telegram chat ID |
-| `CD_SLACK_ENABLED` | `false` | Enable Slack notifications |
-| `CD_SLACK_WEBHOOK` | - | Slack webhook URL |
-
-See [docs/configuration.md](docs/configuration.md) for full reference.
-
----
-
-## Envoy Deployment
-
-The package uses Laravel Envoy for deployment scripts:
-
-```bash
-php artisan vendor:publish --tag=continuous-delivery-envoy
+```php
+'apps' => [
+    'api' => [
+        'name' => 'API Server',
+        'repository' => 'company/api',
+        'path' => '/var/www/api',
+        'strategy' => 'advanced',
+        'triggers' => [
+            ['name' => 'staging', 'on' => 'push', 'branch' => 'develop'],
+            ['name' => 'production', 'on' => 'release', 'auto_deploy' => false],
+        ],
+    ],
+    'web' => [
+        'name' => 'Web Frontend',
+        'repository' => 'company/web',
+        'path' => '/var/www/web',
+        'strategy' => 'simple',
+        'triggers' => [
+            ['name' => 'staging', 'on' => 'push', 'branch' => 'main'],
+        ],
+    ],
+],
 ```
-
-### Default Stories
-
-- **`staging`** - Fast incremental deploy (git pull, composer install, migrate)
-- **`production`** - Full deploy with maintenance mode and cache clearing
-- **`rollback`** - Revert to previous commit
-
-Customize `Envoy.blade.php` in your project root.
 
 ---
 
@@ -167,6 +239,7 @@ Customize `Envoy.blade.php` in your project root.
 | GET | `/api/deploy/status/{uuid}` | Check deployment status |
 | GET | `/api/deploy/approve/{token}` | Approve deployment |
 | GET | `/api/deploy/reject/{token}` | Reject deployment |
+| GET | `/api/deploy/health` | Health check endpoint |
 
 ---
 
@@ -179,26 +252,10 @@ Customize `Envoy.blade.php` in your project root.
 
 ---
 
-## Notifications Setup
-
-### Telegram
-
-1. Create a bot via [@BotFather](https://t.me/botfather)
-2. Get chat ID via [@userinfobot](https://t.me/userinfobot)
-3. Install: `composer require laravel-notification-channels/telegram`
-4. Set `CD_TELEGRAM_BOT_ID` and `CD_TELEGRAM_CHAT_ID`
-
-### Slack
-
-1. Create an [Incoming Webhook](https://api.slack.com/messaging/webhooks)
-2. Set `CD_SLACK_WEBHOOK` and `CD_SLACK_CHANNEL`
-
----
-
 ## Security
 
 - Webhook signatures verified using HMAC-SHA256
-- Approval tokens are 64 random characters
+- Approval tokens are 64 random characters with hash storage
 - Tokens expire after configurable timeout
 - All actions logged with approver identity
 - Isolated database prevents data loss on db refresh
@@ -216,9 +273,9 @@ Customize `Envoy.blade.php` in your project root.
 ### Deployment Stuck
 
 ```bash
-php artisan deploy:pending      # Check pending deployments
-php artisan deploy:expire       # Expire old ones
-php artisan queue:failed        # Check failed jobs
+php artisan deployer:pending      # Check pending deployments
+php artisan deployer:expire       # Expire old ones
+php artisan queue:failed          # Check failed jobs
 ```
 
 ### Notifications Not Sending

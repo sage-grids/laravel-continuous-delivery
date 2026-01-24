@@ -85,7 +85,7 @@
             <p>{{ $message ?? 'An unexpected error occurred.' }}</p>
         </div>
         <div class="footer">
-            <p>Use CLI fallback: <code>php artisan deploy:pending</code></p>
+            <p>Use CLI fallback: <code>php artisan deployer:pending</code></p>
         </div>
     </div>
 </body>

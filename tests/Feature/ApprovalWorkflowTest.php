@@ -5,7 +5,7 @@ namespace SageGrids\ContinuousDelivery\Tests\Feature;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\Test;
 use SageGrids\ContinuousDelivery\Jobs\RunDeployJob;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Tests\TestCase;
 
 class ApprovalWorkflowTest extends TestCase
@@ -19,12 +19,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_approves_pending_deployment(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'approval_expires_at' => now()->addHours(2),
         ]);
@@ -35,7 +36,7 @@ class ApprovalWorkflowTest extends TestCase
         $response->assertViewIs('continuous-delivery::approved');
 
         $deployment->refresh();
-        $this->assertEquals(Deployment::STATUS_QUEUED, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_QUEUED, $deployment->status);
         $this->assertNotNull($deployment->approved_by);
         $this->assertNotNull($deployment->approved_at);
 
@@ -45,12 +46,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_rejects_pending_deployment(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'approval_expires_at' => now()->addHours(2),
         ]);
@@ -61,7 +63,7 @@ class ApprovalWorkflowTest extends TestCase
         $response->assertViewIs('continuous-delivery::rejected');
 
         $deployment->refresh();
-        $this->assertEquals(Deployment::STATUS_REJECTED, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_REJECTED, $deployment->status);
         $this->assertNotNull($deployment->rejected_by);
         $this->assertNotNull($deployment->rejected_at);
 
@@ -91,12 +93,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_returns_error_for_expired_approval(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'approval_expires_at' => now()->subHour(),
         ]);
@@ -111,12 +114,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_returns_error_when_already_approved(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_APPROVED,
+            'status' => DeployerDeployment::STATUS_APPROVED,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'approved_by' => 'someone@example.com',
             'approved_at' => now(),
@@ -132,12 +136,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_returns_error_when_rejecting_already_rejected(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_REJECTED,
+            'status' => DeployerDeployment::STATUS_REJECTED,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'rejected_by' => 'someone@example.com',
             'rejected_at' => now(),
@@ -153,12 +158,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_records_ip_as_approver_for_unauthenticated_user(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'approval_expires_at' => now()->addHours(2),
         ]);
@@ -174,12 +180,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_accepts_reason_for_rejection(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'approval_expires_at' => now()->addHours(2),
         ]);
@@ -195,12 +202,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_uses_default_reason_when_not_provided(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'approval_expires_at' => now()->addHours(2),
         ]);
@@ -216,12 +224,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function approve_view_contains_deployment_info(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'approval_expires_at' => now()->addHours(2),
         ]);
@@ -237,12 +246,13 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function rejected_view_contains_deployment_info(): void
     {
-        $deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
             'approval_expires_at' => now()->addHours(2),
         ]);

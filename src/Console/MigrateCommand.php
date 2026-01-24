@@ -6,7 +6,7 @@ use Illuminate\Console\Command;
 
 class MigrateCommand extends Command
 {
-    protected $signature = 'deploy:migrate
+    protected $signature = 'deployer:migrate
                             {--fresh : Drop all tables and re-run all migrations}
                             {--rollback : Rollback the last database migration}
                             {--status : Show the status of each migration}

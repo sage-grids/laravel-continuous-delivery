@@ -12,47 +12,166 @@ This creates `config/continuous-delivery.php` in your application.
 
 ---
 
+## App Configuration
+
+The core of the package is the `apps` array. Each app defines:
+
+```php
+'apps' => [
+    'default' => [
+        // Display name
+        'name' => 'My Application',
+
+        // GitHub repository (owner/repo)
+        'repository' => 'company/my-app',
+
+        // Deployment path
+        'path' => '/var/www/my-app',
+
+        // Deployment strategy: 'simple' or 'advanced'
+        'strategy' => 'simple',
+
+        // Strategy-specific settings
+        'simple' => [
+            // No additional config needed for simple mode
+        ],
+        
+        'advanced' => [
+            'keep_releases' => 5,
+        ],
+
+        // Deployment triggers
+        'triggers' => [
+            [
+                'name' => 'staging',
+                'on' => 'push',
+                'branch' => 'develop',
+                'auto_deploy' => true,
+                'story' => 'staging',
+            ],
+            [
+                'name' => 'production',
+                'on' => 'release',
+                'tag_pattern' => '/^v\d+\.\d+\.\d+$/',
+                'auto_deploy' => false,
+                'approval_timeout' => 2,
+                'story' => 'production',
+            ],
+        ],
+
+        // Per-app notifications (optional, overrides global)
+        'notifications' => [
+            'telegram' => [
+                'enabled' => true,
+                'chat_id' => '-100123456789',
+            ],
+        ],
+    ],
+],
+```
+
+---
+
+## Deployment Strategies
+
+### Simple Strategy
+
+In-place git deployment:
+
+```php
+'strategy' => 'simple',
+```
+
+Deployment flow:
+1. `git pull origin {ref}`
+2. `composer install`
+3. `php artisan migrate`
+4. `php artisan cache:clear`
+
+### Advanced Strategy
+
+Release-based deployment with symlinks:
+
+```php
+'strategy' => 'advanced',
+'advanced' => [
+    'keep_releases' => 5,      // Number of releases to keep
+    'shared_dirs' => [
+        'storage',              // Shared directories
+    ],
+    'shared_files' => [
+        '.env',                 // Shared files
+    ],
+],
+```
+
+Directory structure:
+```
+/var/www/my-app/
+├── releases/
+│   ├── 20240115120000/
+│   └── 20240116140000/
+├── shared/
+│   ├── storage/
+│   └── .env
+└── current -> releases/20240116140000
+```
+
+---
+
+## Trigger Configuration
+
+### Branch Push Trigger
+
+```php
+[
+    'name' => 'staging',
+    'on' => 'push',
+    'branch' => 'develop',           // Branch name
+    'auto_deploy' => true,
+    'story' => 'staging',            // Envoy story to run
+],
+```
+
+### Release Trigger
+
+```php
+[
+    'name' => 'production',
+    'on' => 'release',
+    'tag_pattern' => '/^v\d+\.\d+\.\d+$/',  // Regex for valid tags
+    'auto_deploy' => false,
+    'approval_timeout' => 2,
+    'story' => 'production',
+],
+```
+
+---
+
 ## Environment Variables
 
-### Required
-
-| Variable | Description |
-|----------|-------------|
-| `GITHUB_WEBHOOK_SECRET` | Shared secret for webhook signature verification |
-| `CD_APP_DIR` | Absolute path to application root directory |
-
-### Staging Environment
+### GitHub
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CD_STAGING_ENABLED` | `true` | Enable staging deployments |
-| `CD_STAGING_BRANCH` | `develop` | Branch that triggers staging deploys |
+| `GITHUB_WEBHOOK_SECRET` | - | Webhook signature verification secret |
 
-### Production Environment
+### Database
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CD_PRODUCTION_ENABLED` | `false` | Enable production deployments |
-| `CD_PRODUCTION_TAG_PATTERN` | `/^v\d+\.\d+\.\d+$/` | Regex pattern for valid release tags |
-| `CD_PRODUCTION_APPROVAL` | `true` | Require human approval before deploy |
-| `CD_PRODUCTION_APPROVAL_TIMEOUT` | `2` | Hours before approval request expires |
+| `CD_DATABASE_CONNECTION` | `sqlite` | `sqlite` for isolated, `default` for app DB |
+| `CD_DATABASE_PATH` | `/var/lib/sage-grids-cd/deployments.sqlite` | SQLite file path |
 
 ### Notifications
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CD_TELEGRAM_ENABLED` | `false` | Enable Telegram notifications |
-| `CD_TELEGRAM_BOT_ID` | - | Telegram bot ID from BotFather |
+| `CD_TELEGRAM_BOT_TOKEN` | - | Telegram bot token |
 | `CD_TELEGRAM_CHAT_ID` | - | Telegram chat/group ID |
 | `CD_SLACK_ENABLED` | `false` | Enable Slack notifications |
-| `CD_SLACK_WEBHOOK` | - | Slack incoming webhook URL |
-| `CD_SLACK_CHANNEL` | `#deploys` | Slack channel for notifications |
-
-### Storage
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CD_DATABASE_PATH` | `/var/lib/sage-grids-cd/deployments.sqlite` | Isolated SQLite database path |
+| `CD_SLACK_WEBHOOK_URL` | - | Slack incoming webhook URL |
 
 ### Queue
 
@@ -65,90 +184,59 @@ This creates `config/continuous-delivery.php` in your application.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CD_ENVOY_PATH` | `Envoy.blade.php` | Path to Envoy file |
-| `CD_ENVOY_TIMEOUT` | `1800` | Max execution time in seconds (30 min) |
-| `CD_PHP_PATH` | `php` | PHP binary path |
-| `CD_COMPOSER_PATH` | `composer` | Composer binary path |
+| `CD_ENVOY_BINARY` | (auto) | Path to Envoy binary |
+| `CD_ENVOY_TIMEOUT` | `1800` | Max execution time in seconds |
 
 ---
 
-## Example Configurations
+## Multi-App Configuration
 
-### Staging Server
-
-```env
-# Required
-GITHUB_WEBHOOK_SECRET=your-32-char-random-secret
-CD_APP_DIR=/home/staging.example.com/app/current
-
-# Storage
-CD_DATABASE_PATH=/var/lib/sage-grids-cd/deployments.sqlite
-
-# Staging only
-CD_STAGING_ENABLED=true
-CD_STAGING_BRANCH=develop
-CD_PRODUCTION_ENABLED=false
-
-# Notifications
-CD_TELEGRAM_ENABLED=true
-CD_TELEGRAM_BOT_ID=123456789
-CD_TELEGRAM_CHAT_ID=-100123456789
-```
-
-### Production Server
-
-```env
-# Required
-GITHUB_WEBHOOK_SECRET=your-32-char-random-secret
-CD_APP_DIR=/home/example.com/app/current
-
-# Storage
-CD_DATABASE_PATH=/var/lib/sage-grids-cd/deployments.sqlite
-
-# Production only
-CD_STAGING_ENABLED=false
-CD_PRODUCTION_ENABLED=true
-CD_PRODUCTION_APPROVAL=true
-CD_PRODUCTION_APPROVAL_TIMEOUT=2
-
-# Notifications (both channels)
-CD_TELEGRAM_ENABLED=true
-CD_TELEGRAM_BOT_ID=123456789
-CD_TELEGRAM_CHAT_ID=-100123456789
-
-CD_SLACK_ENABLED=true
-CD_SLACK_WEBHOOK=https://hooks.slack.com/services/xxx/yyy/zzz
-CD_SLACK_CHANNEL=#production-deploys
-```
-
----
-
-## Custom Environments
-
-Add custom environments in `config/continuous-delivery.php`:
+### Same Repository, Different Triggers
 
 ```php
-'environments' => [
-    'staging' => [...],
-    'production' => [...],
-
-    // QA environment - branch-triggered, no approval
-    'qa' => [
-        'enabled' => env('CD_QA_ENABLED', false),
-        'trigger' => 'branch',
-        'branch' => env('CD_QA_BRANCH', 'qa'),
-        'approval_required' => false,
-        'envoy_story' => 'staging',
+'apps' => [
+    'default' => [
+        'name' => 'Main App',
+        'repository' => 'company/app',
+        'path' => '/var/www/app',
+        'strategy' => 'advanced',
+        'triggers' => [
+            [
+                'name' => 'staging',
+                'on' => 'push',
+                'branch' => 'develop',
+            ],
+            [
+                'name' => 'production',
+                'on' => 'release',
+                'auto_deploy' => false,
+            ],
+        ],
     ],
+],
+```
 
-    // Beta environment - tag-triggered with approval
-    'beta' => [
-        'enabled' => env('CD_BETA_ENABLED', false),
-        'trigger' => 'release',
-        'tag_pattern' => '/^v\d+\.\d+\.\d+-beta\.\d+$/',
-        'approval_required' => true,
-        'approval_timeout_hours' => 4,
-        'envoy_story' => 'production',
+### Multiple Repositories
+
+```php
+'apps' => [
+    'api' => [
+        'name' => 'API Server',
+        'repository' => 'company/api',
+        'path' => '/var/www/api',
+        // ...
+    ],
+    'web' => [
+        'name' => 'Web Frontend',
+        'repository' => 'company/web',
+        'path' => '/var/www/web',
+        // ...
+    ],
+    'admin' => [
+        'name' => 'Admin Panel',
+        'repository' => 'company/admin',
+        'path' => '/var/www/admin',
+        // ...
     ],
 ],
 ```
@@ -157,11 +245,7 @@ Add custom environments in `config/continuous-delivery.php`:
 
 ## Isolated Database
 
-The package uses a separate SQLite database to store deployment records. This ensures:
-
-- Deployment history survives `migrate:fresh` on staging
-- No pollution of your main application database
-- Easy backup and management
+The package uses a separate SQLite database to store deployment records:
 
 ### Default Location
 
@@ -175,12 +259,88 @@ The package uses a separate SQLite database to store deployment records. This en
 CD_DATABASE_PATH=/custom/path/to/deployments.sqlite
 ```
 
-### Using Main Database (Not Recommended)
+### Using Main Database
 
-Set to empty to use your main database connection:
+Set connection to `default` to use your main database:
 
 ```env
-CD_DATABASE_PATH=
+CD_DATABASE_CONNECTION=default
 ```
 
 **Warning:** Deployment records will be lost on `migrate:fresh`.
+
+---
+
+## Complete Example
+
+```php
+<?php
+
+return [
+    'github' => [
+        'webhook_secret' => env('GITHUB_WEBHOOK_SECRET'),
+    ],
+
+    'apps' => [
+        'default' => [
+            'name' => env('APP_NAME', 'My App'),
+            'repository' => env('CD_REPOSITORY'),
+            'path' => env('CD_APP_PATH', base_path()),
+            'strategy' => env('CD_STRATEGY', 'simple'),
+            'simple' => [],
+            'advanced' => [
+                'keep_releases' => 5,
+            ],
+            'triggers' => [
+                [
+                    'name' => 'staging',
+                    'on' => 'push',
+                    'branch' => 'develop',
+                    'auto_deploy' => true,
+                    'story' => 'staging',
+                ],
+                [
+                    'name' => 'production',
+                    'on' => 'release',
+                    'tag_pattern' => '/^v\d+\.\d+\.\d+$/',
+                    'auto_deploy' => false,
+                    'approval_timeout' => 2,
+                    'story' => 'production',
+                ],
+            ],
+        ],
+    ],
+
+    'database' => [
+        'connection' => env('CD_DATABASE_CONNECTION', 'sqlite'),
+        'sqlite_path' => env('CD_DATABASE_PATH', '/var/lib/sage-grids-cd/deployments.sqlite'),
+    ],
+
+    'approval' => [
+        'default_timeout_hours' => 2,
+        'auto_expire' => true,
+    ],
+
+    'notifications' => [
+        'telegram' => [
+            'enabled' => env('CD_TELEGRAM_ENABLED', false),
+            'bot_token' => env('CD_TELEGRAM_BOT_TOKEN'),
+            'chat_id' => env('CD_TELEGRAM_CHAT_ID'),
+        ],
+        'slack' => [
+            'enabled' => env('CD_SLACK_ENABLED', false),
+            'webhook_url' => env('CD_SLACK_WEBHOOK_URL'),
+        ],
+    ],
+
+    'queue' => [
+        'connection' => env('CD_QUEUE_CONNECTION'),
+        'queue' => env('CD_QUEUE_NAME'),
+    ],
+
+    'envoy' => [
+        'binary' => env('CD_ENVOY_BINARY'),
+        'timeout' => env('CD_ENVOY_TIMEOUT', 1800),
+    ],
+];
+```

@@ -3,7 +3,7 @@
 namespace SageGrids\ContinuousDelivery\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\Test;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentApprovalRequired;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentApproved;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentExpired;
@@ -15,21 +15,22 @@ use SageGrids\ContinuousDelivery\Tests\TestCase;
 
 class NotificationTest extends TestCase
 {
-    protected Deployment $deployment;
+    protected DeployerDeployment $deployment;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->deployment = Deployment::create([
-            'environment' => 'production',
-            'trigger_type' => 'release',
+        $this->deployment = DeployerDeployment::create([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
             'commit_message' => 'Release v1.0.0',
             'author' => 'testuser',
             'repository' => 'owner/repo',
-            'status' => Deployment::STATUS_PENDING_APPROVAL,
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_token' => 'test-token-123',
             'approval_expires_at' => now()->addHours(2),
         ]);
