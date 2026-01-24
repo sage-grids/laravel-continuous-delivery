@@ -70,19 +70,13 @@ class InstallCommand extends Command
 
                 // Check for missing columns and run migrations if needed
                 if (!Schema::connection($connection)->hasColumn('deployments', 'approval_token_hash')) {
-                    Artisan::call('migrate', [
-                        '--path' => 'vendor/sage-grids/laravel-continuous-delivery/database/migrations',
-                        '--force' => true,
-                    ]);
+                    $this->callSilent('deploy:migrate', ['--force' => true]);
                     $this->line('  <fg=green>✓</> Applied pending migrations');
                 } else {
                     $this->line('  <fg=green>✓</> Database is up to date');
                 }
             } else {
-                Artisan::call('migrate', [
-                    '--path' => 'vendor/sage-grids/laravel-continuous-delivery/database/migrations',
-                    '--force' => true,
-                ]);
+                $this->callSilent('deploy:migrate', ['--force' => true]);
                 $this->line('  <fg=green>✓</> Migrations completed');
             }
         } catch (\Throwable $e) {
@@ -124,6 +118,7 @@ class InstallCommand extends Command
         $this->newLine();
 
         $this->info('CLI Commands:');
+        $this->line('   <comment>php artisan deploy:migrate</comment>     Run package migrations');
         $this->line('   <comment>php artisan deploy:pending</comment>     List pending approvals');
         $this->line('   <comment>php artisan deploy:approve</comment>     Approve a deployment');
         $this->line('   <comment>php artisan deploy:reject</comment>      Reject a deployment');

@@ -12,6 +12,7 @@ use SageGrids\ContinuousDelivery\Console\ApproveCommand;
 use SageGrids\ContinuousDelivery\Console\CleanupCommand;
 use SageGrids\ContinuousDelivery\Console\ExpireCommand;
 use SageGrids\ContinuousDelivery\Console\InstallCommand;
+use SageGrids\ContinuousDelivery\Console\MigrateCommand;
 use SageGrids\ContinuousDelivery\Console\PendingCommand;
 use SageGrids\ContinuousDelivery\Console\RejectCommand;
 use SageGrids\ContinuousDelivery\Console\RollbackCommand;
@@ -162,6 +163,7 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
 
         $this->commands([
             InstallCommand::class,
+            MigrateCommand::class,
             PendingCommand::class,
             ApproveCommand::class,
             RejectCommand::class,

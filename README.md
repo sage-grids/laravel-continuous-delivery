@@ -36,7 +36,7 @@ Create release → Webhook → Approval request → Approve → Deploy → Notif
 ```bash
 composer require sage-grids/laravel-continuous-delivery
 php artisan vendor:publish --tag=continuous-delivery
-php artisan migrate --database=continuous-delivery
+php artisan deploy:migrate
 ```
 
 ### 2. Configure

@@ -38,7 +38,7 @@ sudo chmod 755 /var/lib/sage-grids-cd
 ### 4. Run Migrations
 
 ```bash
-php artisan migrate --database=continuous-delivery
+php artisan deploy:migrate
 ```
 
 ### 5. Configure Environment
