@@ -56,26 +56,7 @@ Approval tokens are passed in the URL. If these URLs are leaked (e.g., via Refer
 *   Ensure the approval views do not load external assets that could leak the URL via Referrer.
 *   The `cd-approval` rate limiter uses `$request->ip()`. Ensure users are advised to configure `TrustedProxy` if running behind a load balancer (common in production), otherwise `ip()` might return the LB IP, effectively blocking valid approvals globally after 10 requests.
 
-### 2. Command Injection Risks
-**Severity:** Low
-**Location:** `Deployer` classes
-
-You correctly use `escapeshellarg` for most variables. However, reliance on string concatenation for shell commands is always risky.
-
-**Recommendation:**
-*   Ensure `AppConfig` validation prevents spaces or shell metacharacters in `app_path`, `repository`, etc.
-*   Consider using `Process::run(['command', 'arg1', ...])` array syntax where possible, though Envoy requires a single string command.
-
 ## Robustness & Reliability
-
-### 1. Hardcoded SQLite Connection
-**Severity:** Low
-**Location:** `ContinuousDeliveryServiceProvider.php`
-
-The provider forces a `sqlite` connection for the `continuous-delivery` connection name unless configured otherwise. It constructs the config array at runtime. This makes it hard for users to use a shared MySQL database for deployment history (useful for high availability).
-
-**Recommendation:**
-*   Allow the user to define a full connection array in the config, defaulting to the SQLite preset.
 
 ### 2. Stuck Deployments
 **Severity:** Medium
