@@ -4,6 +4,7 @@ namespace SageGrids\ContinuousDelivery\Tests\Feature;
 
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\Test;
+use SageGrids\ContinuousDelivery\Enums\DeploymentStatus;
 use SageGrids\ContinuousDelivery\Jobs\RunDeployJob;
 use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Tests\TestCase;
@@ -78,7 +79,7 @@ class CommandTest extends TestCase
         ])->assertSuccessful();
 
         $deployment->refresh();
-        $this->assertEquals(DeployerDeployment::STATUS_QUEUED, $deployment->status);
+        $this->assertEquals(DeploymentStatus::Queued, $deployment->status);
         $this->assertStringStartsWith('cli:', $deployment->approved_by);
 
         Queue::assertPushed(RunDeployJob::class);
@@ -125,7 +126,7 @@ class CommandTest extends TestCase
         ])->assertSuccessful();
 
         $deployment->refresh();
-        $this->assertEquals(DeployerDeployment::STATUS_REJECTED, $deployment->status);
+        $this->assertEquals(DeploymentStatus::Rejected, $deployment->status);
         $this->assertEquals('Not ready for production', $deployment->rejection_reason);
         $this->assertStringStartsWith('cli:', $deployment->rejected_by);
     }
@@ -206,8 +207,8 @@ class CommandTest extends TestCase
         $expiredDeployment->refresh();
         $validDeployment->refresh();
 
-        $this->assertEquals(DeployerDeployment::STATUS_EXPIRED, $expiredDeployment->status);
-        $this->assertEquals(DeployerDeployment::STATUS_PENDING_APPROVAL, $validDeployment->status);
+        $this->assertEquals(DeploymentStatus::Expired, $expiredDeployment->status);
+        $this->assertEquals(DeploymentStatus::PendingApproval, $validDeployment->status);
     }
 
     #[Test]

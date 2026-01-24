@@ -3,6 +3,7 @@
 namespace SageGrids\ContinuousDelivery\Console;
 
 use Illuminate\Console\Command;
+use SageGrids\ContinuousDelivery\Enums\DeploymentStatus;
 use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 class StatusCommand extends Command
@@ -35,26 +36,26 @@ class StatusCommand extends Command
         }
 
         $statusColor = match ($deployment->status) {
-            DeployerDeployment::STATUS_SUCCESS => 'green',
-            DeployerDeployment::STATUS_FAILED => 'red',
-            DeployerDeployment::STATUS_RUNNING => 'yellow',
-            DeployerDeployment::STATUS_PENDING_APPROVAL => 'cyan',
-            DeployerDeployment::STATUS_REJECTED, DeployerDeployment::STATUS_EXPIRED => 'gray',
+            DeploymentStatus::Success => 'green',
+            DeploymentStatus::Failed => 'red',
+            DeploymentStatus::Running => 'yellow',
+            DeploymentStatus::PendingApproval => 'cyan',
+            DeploymentStatus::Rejected, DeploymentStatus::Expired => 'gray',
             default => 'white',
         };
 
         $this->newLine();
-        $this->line("  <fg={$statusColor};options=bold>{$deployment->status}</>");
+        $this->line("  <fg={$statusColor};options=bold>{$deployment->status->value}</>");
         $this->newLine();
 
         $this->table([], [
             ['UUID', $deployment->uuid],
             ['App', "{$deployment->app_key} ({$deployment->app_name})"],
-            ['Strategy', $deployment->strategy],
+            ['Strategy', $deployment->strategy->value],
             ['Trigger', "{$deployment->trigger_name}:{$deployment->trigger_ref}"],
             ['Commit', $deployment->commit_sha],
             ['Author', $deployment->author],
-            ['Status', $deployment->status],
+            ['Status', $deployment->status->value],
             ['Release', $deployment->release_name ?? '-'],
             ['Created', $deployment->created_at->format('Y-m-d H:i:s')],
             ['Started', $deployment->started_at?->format('Y-m-d H:i:s') ?? '-'],
@@ -68,7 +69,6 @@ class StatusCommand extends Command
             $this->line('Awaiting approval:');
             $this->line("  Approve: php artisan deployer:approve {$deployment->uuid}");
             $this->line("  Reject:  php artisan deployer:reject {$deployment->uuid}");
-            $this->line("  Web URL: {$deployment->getApproveUrl()}");
         }
 
         if ($deployment->output) {
@@ -108,7 +108,7 @@ class StatusCommand extends Command
                 $d->app_key,
                 "{$d->trigger_name}:{$d->trigger_ref}",
                 $this->formatStatus($d->status),
-                $d->strategy,
+                $d->strategy->value,
                 $d->author,
                 $d->duration_for_humans ?? '-',
                 $d->created_at->diffForHumans(),
@@ -121,18 +121,17 @@ class StatusCommand extends Command
         return self::SUCCESS;
     }
 
-    protected function formatStatus(string $status): string
+    protected function formatStatus(DeploymentStatus $status): string
     {
         return match ($status) {
-            DeployerDeployment::STATUS_SUCCESS => '<fg=green>success</>',
-            DeployerDeployment::STATUS_FAILED => '<fg=red>failed</>',
-            DeployerDeployment::STATUS_RUNNING => '<fg=yellow>running</>',
-            DeployerDeployment::STATUS_QUEUED => '<fg=yellow>queued</>',
-            DeployerDeployment::STATUS_PENDING_APPROVAL => '<fg=cyan>pending</>',
-            DeployerDeployment::STATUS_APPROVED => '<fg=green>approved</>',
-            DeployerDeployment::STATUS_REJECTED => '<fg=gray>rejected</>',
-            DeployerDeployment::STATUS_EXPIRED => '<fg=gray>expired</>',
-            default => $status,
+            DeploymentStatus::Success => '<fg=green>success</>',
+            DeploymentStatus::Failed => '<fg=red>failed</>',
+            DeploymentStatus::Running => '<fg=yellow>running</>',
+            DeploymentStatus::Queued => '<fg=yellow>queued</>',
+            DeploymentStatus::PendingApproval => '<fg=cyan>pending</>',
+            DeploymentStatus::Approved => '<fg=green>approved</>',
+            DeploymentStatus::Rejected => '<fg=gray>rejected</>',
+            DeploymentStatus::Expired => '<fg=gray>expired</>',
         };
     }
 }

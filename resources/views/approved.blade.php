@@ -107,7 +107,7 @@
             </div>
             <div class="detail-row">
                 <span class="detail-label">Trigger</span>
-                <span class="detail-value">{{ $deployment->trigger_type }}:{{ $deployment->trigger_ref }}</span>
+                <span class="detail-value">{{ $deployment->trigger_type->value }}:{{ $deployment->trigger_ref }}</span>
             </div>
             <div class="detail-row">
                 <span class="detail-label">Commit</span>
@@ -119,7 +119,7 @@
             </div>
             <div class="detail-row">
                 <span class="detail-label">Status</span>
-                <span class="status-badge">{{ ucfirst(str_replace('_', ' ', $deployment->status)) }}</span>
+                <span class="status-badge">{{ ucfirst(str_replace('_', ' ', $deployment->status->value)) }}</span>
             </div>
         </div>
         <div class="footer">

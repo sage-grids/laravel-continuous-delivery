@@ -105,13 +105,7 @@ class AppRegistry
         $normalizedApp = $this->normalizeRepository($appRepo);
         $normalizedWebhook = $this->normalizeRepository($webhookRepo);
 
-        // Direct match
-        if ($normalizedApp === $normalizedWebhook) {
-            return true;
-        }
-
-        // Check if webhook repo name contains app repo (for full names like "org/repo")
-        return str_contains($normalizedWebhook, $normalizedApp)
-            || str_contains($normalizedApp, $normalizedWebhook);
+        // Use exact matching after normalization for security
+        return $normalizedApp === $normalizedWebhook;
     }
 }

@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use SageGrids\ContinuousDelivery\Config\AppRegistry;
 use SageGrids\ContinuousDelivery\Deployers\AdvancedDeployer;
 use SageGrids\ContinuousDelivery\Deployers\DeployerFactory;
+use SageGrids\ContinuousDelivery\Enums\DeploymentStatus;
 use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 class CleanupCommand extends Command
@@ -36,10 +37,10 @@ class CleanupCommand extends Command
         // Build query
         $query = DeployerDeployment::where('created_at', '<', $cutoff)
             ->whereIn('status', [
-                DeployerDeployment::STATUS_SUCCESS,
-                DeployerDeployment::STATUS_FAILED,
-                DeployerDeployment::STATUS_REJECTED,
-                DeployerDeployment::STATUS_EXPIRED,
+                DeploymentStatus::Success,
+                DeploymentStatus::Failed,
+                DeploymentStatus::Rejected,
+                DeploymentStatus::Expired,
             ]);
 
         if ($appKey) {
@@ -63,7 +64,7 @@ class CleanupCommand extends Command
                     $query->limit(20)->get()->map(fn ($d) => [
                         substr($d->uuid, 0, 8).'...',
                         $d->app_key,
-                        $d->status,
+                        $d->status->value,
                         $d->created_at->format('Y-m-d H:i'),
                     ])
                 );
@@ -133,7 +134,7 @@ class CleanupCommand extends Command
         // Add a buffer to the timeout
         $cutoff = now()->subSeconds($timeout + 300);
 
-        $stuck = DeployerDeployment::where('status', DeployerDeployment::STATUS_RUNNING)
+        $stuck = DeployerDeployment::where('status', DeploymentStatus::Running)
             ->where('started_at', '<', $cutoff)
             ->get();
 

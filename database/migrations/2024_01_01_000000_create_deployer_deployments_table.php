@@ -49,8 +49,7 @@ return new class extends Migration
             $table->string('status', 30);
             $table->string('envoy_story', 50);
 
-            // Approval workflow
-            $table->string('approval_token', 64)->nullable()->index();
+            // Approval workflow (only hash is stored for security)
             $table->string('approval_token_hash', 64)->nullable()->index();
             $table->timestamp('approval_expires_at')->nullable();
             $table->string('approved_by')->nullable();
@@ -66,6 +65,9 @@ return new class extends Migration
             $table->longText('output')->nullable();
             $table->integer('exit_code')->nullable();
             $table->integer('duration_seconds')->nullable();
+
+            // Webhook idempotency
+            $table->string('github_delivery_id', 64)->nullable()->unique();
 
             // Metadata
             $table->json('payload')->nullable();

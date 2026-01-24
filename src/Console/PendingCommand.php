@@ -34,7 +34,7 @@ class PendingCommand extends Command
                 $d->uuid,
                 $d->app_key,
                 "{$d->trigger_name}:{$d->trigger_ref}",
-                $d->strategy,
+                $d->strategy->value,
                 $d->author,
                 $d->hasExpired() ? '<fg=red>EXPIRED</>' : $d->time_until_expiry,
                 $d->created_at->diffForHumans(),

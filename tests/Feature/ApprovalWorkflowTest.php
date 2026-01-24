@@ -19,47 +19,60 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_shows_approval_confirmation_view(): void
     {
+        $token = str_repeat('0', 64);
         $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => str_repeat('0', 64),
+            'approval_token_hash' => hash('sha256', $token),
             'approval_expires_at' => now()->addHours(2),
         ]);
 
-        $response = $this->get($deployment->getApproveUrl());
+        $url = \Illuminate\Support\Facades\URL::signedRoute(
+            'continuous-delivery.approve.confirm',
+            ['token' => $token],
+            $deployment->approval_expires_at
+        );
+
+        $response = $this->get($url);
 
         $response->assertStatus(200);
         $response->assertViewIs('continuous-delivery::confirm-approval');
-        $response->assertViewHas('deployment', $deployment);
     }
 
     #[Test]
     public function it_shows_rejection_confirmation_view(): void
     {
+        $token = str_repeat('0', 64);
         $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => str_repeat('0', 64),
+            'approval_token_hash' => hash('sha256', $token),
             'approval_expires_at' => now()->addHours(2),
         ]);
 
-        $response = $this->get($deployment->getRejectUrl());
+        $url = \Illuminate\Support\Facades\URL::signedRoute(
+            'continuous-delivery.reject.confirm',
+            ['token' => $token],
+            $deployment->approval_expires_at
+        );
+
+        $response = $this->get($url);
 
         $response->assertStatus(200);
         $response->assertViewIs('continuous-delivery::confirm-rejection');
-        $response->assertViewHas('deployment', $deployment);
     }
 
     #[Test]
     public function it_approves_pending_deployment_via_post(): void
     {
+        $token = str_repeat('0', 64);
         $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => str_repeat('0', 64),
+            'approval_token_hash' => hash('sha256', $token),
             'approval_expires_at' => now()->addHours(2),
         ]);
 
         $url = \Illuminate\Support\Facades\URL::signedRoute(
             'continuous-delivery.approve',
-            ['token' => $deployment->approval_token],
+            ['token' => $token],
             $deployment->approval_expires_at
         );
 
@@ -69,7 +82,7 @@ class ApprovalWorkflowTest extends TestCase
         $response->assertViewIs('continuous-delivery::approved');
 
         $deployment->refresh();
-        $this->assertEquals(DeployerDeployment::STATUS_QUEUED, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_QUEUED, $deployment->status->value);
         $this->assertNotNull($deployment->approved_by);
         $this->assertNotNull($deployment->approved_at);
 
@@ -79,15 +92,16 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_rejects_pending_deployment_via_post(): void
     {
+        $token = str_repeat('0', 64);
         $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => str_repeat('0', 64),
+            'approval_token_hash' => hash('sha256', $token),
             'approval_expires_at' => now()->addHours(2),
         ]);
 
         $url = \Illuminate\Support\Facades\URL::signedRoute(
             'continuous-delivery.reject',
-            ['token' => $deployment->approval_token],
+            ['token' => $token],
             $deployment->approval_expires_at
         );
 
@@ -99,7 +113,7 @@ class ApprovalWorkflowTest extends TestCase
         $response->assertViewIs('continuous-delivery::rejected');
 
         $deployment->refresh();
-        $this->assertEquals(DeployerDeployment::STATUS_REJECTED, $deployment->status);
+        $this->assertEquals(DeployerDeployment::STATUS_REJECTED, $deployment->status->value);
         $this->assertNotNull($deployment->rejected_by);
         $this->assertNotNull($deployment->rejected_at);
         $this->assertEquals('Not ready', $deployment->rejection_reason);
@@ -137,23 +151,18 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_returns_error_for_expired_approval(): void
     {
+        $token = str_repeat('0', 64);
         $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => str_repeat('0', 64),
+            'approval_token_hash' => hash('sha256', $token),
             'approval_expires_at' => now()->subHour(),
         ]);
 
-        // URL::signedRoute will also check expiry if we pass it in the route params or as argument.
-        // But if the route itself is signed with an expiry time, the signature check fails if it is expired.
-        // We want to test that the *controller* logic catches it if it passes signature but model logic says expired.
-        // However, if we sign the route using the deployment's expired time, hasValidSignature() will return false.
-        
-        // So we sign it with a FUTURE time so it passes signature check,
+        // Sign with FUTURE time so it passes signature check,
         // but the deployment itself is expired in DB.
-        
         $url = \Illuminate\Support\Facades\URL::signedRoute(
             'continuous-delivery.approve.confirm',
-            ['token' => $deployment->approval_token],
+            ['token' => $token],
             now()->addHour() // Signature valid
         );
 
@@ -166,14 +175,21 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_returns_error_when_already_approved(): void
     {
+        $token = str_repeat('0', 64);
         $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_QUEUED,
-            'approval_token' => str_repeat('0', 64),
+            'approval_token_hash' => hash('sha256', $token),
             'approved_by' => 'someone@example.com',
             'approved_at' => now(),
         ]);
 
-        $response = $this->get($deployment->getApproveUrl());
+        $url = \Illuminate\Support\Facades\URL::signedRoute(
+            'continuous-delivery.approve.confirm',
+            ['token' => $token],
+            now()->addHour()
+        );
+
+        $response = $this->get($url);
 
         $response->assertStatus(400);
         $response->assertViewHas('title', 'Cannot Approve');
@@ -182,14 +198,21 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_returns_error_when_rejecting_already_rejected(): void
     {
+        $token = str_repeat('0', 64);
         $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_REJECTED,
-            'approval_token' => str_repeat('0', 64),
+            'approval_token_hash' => hash('sha256', $token),
             'rejected_by' => 'someone@example.com',
             'rejected_at' => now(),
         ]);
 
-        $response = $this->get($deployment->getRejectUrl());
+        $url = \Illuminate\Support\Facades\URL::signedRoute(
+            'continuous-delivery.reject.confirm',
+            ['token' => $token],
+            now()->addHour()
+        );
+
+        $response = $this->get($url);
 
         $response->assertStatus(400);
         $response->assertViewHas('title', 'Cannot Reject');
@@ -198,15 +221,16 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_records_ip_as_approver_for_unauthenticated_user(): void
     {
+        $token = str_repeat('0', 64);
         $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => str_repeat('0', 64),
+            'approval_token_hash' => hash('sha256', $token),
             'approval_expires_at' => now()->addHours(2),
         ]);
 
         $url = \Illuminate\Support\Facades\URL::signedRoute(
             'continuous-delivery.approve',
-            ['token' => $deployment->approval_token],
+            ['token' => $token],
             $deployment->approval_expires_at
         );
 

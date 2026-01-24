@@ -9,6 +9,15 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
 use SageGrids\ContinuousDelivery\Config\AppConfig;
 use SageGrids\ContinuousDelivery\Config\AppRegistry;
+use SageGrids\ContinuousDelivery\Enums\DeploymentStatus;
+use SageGrids\ContinuousDelivery\Enums\DeploymentStrategy;
+use SageGrids\ContinuousDelivery\Enums\TriggerType;
+use SageGrids\ContinuousDelivery\Events\DeploymentApproved;
+use SageGrids\ContinuousDelivery\Events\DeploymentCompleted;
+use SageGrids\ContinuousDelivery\Events\DeploymentCreated;
+use SageGrids\ContinuousDelivery\Events\DeploymentFailed as DeploymentFailedEvent;
+use SageGrids\ContinuousDelivery\Events\DeploymentRejected;
+use SageGrids\ContinuousDelivery\Events\DeploymentStarted;
 
 class DeployerDeployment extends Model
 {
@@ -16,21 +25,31 @@ class DeployerDeployment extends Model
 
     protected $table = 'deployer_deployments';
 
+    /**
+     * Transient property to hold the plaintext token for URL generation.
+     * This is never persisted to the database.
+     */
+    protected ?string $plaintextApprovalToken = null;
+
     protected $fillable = [
         'uuid', 'app_key', 'app_name',
         'trigger_name', 'trigger_type', 'trigger_ref',
         'repository', 'commit_sha', 'commit_message', 'author',
         'strategy', 'release_name', 'release_path',
         'status', 'envoy_story',
-        'approval_token', 'approval_token_hash', 'approval_expires_at',
+        'approval_token_hash', 'approval_expires_at',
         'approved_by', 'approved_at',
         'rejected_by', 'rejected_at', 'rejection_reason',
         'queued_at', 'started_at', 'completed_at',
         'output', 'exit_code', 'duration_seconds',
+        'github_delivery_id',
         'payload', 'metadata',
     ];
 
     protected $casts = [
+        'status' => DeploymentStatus::class,
+        'strategy' => DeploymentStrategy::class,
+        'trigger_type' => TriggerType::class,
         'approval_expires_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
@@ -41,21 +60,29 @@ class DeployerDeployment extends Model
         'metadata' => 'array',
     ];
 
-    // Status constants
+    // Status constants (deprecated, use DeploymentStatus enum directly)
+    /** @deprecated Use DeploymentStatus::PendingApproval */
     public const STATUS_PENDING_APPROVAL = 'pending_approval';
 
+    /** @deprecated Use DeploymentStatus::Approved */
     public const STATUS_APPROVED = 'approved';
 
+    /** @deprecated Use DeploymentStatus::Rejected */
     public const STATUS_REJECTED = 'rejected';
 
+    /** @deprecated Use DeploymentStatus::Expired */
     public const STATUS_EXPIRED = 'expired';
 
+    /** @deprecated Use DeploymentStatus::Queued */
     public const STATUS_QUEUED = 'queued';
 
+    /** @deprecated Use DeploymentStatus::Running */
     public const STATUS_RUNNING = 'running';
 
+    /** @deprecated Use DeploymentStatus::Success */
     public const STATUS_SUCCESS = 'success';
 
+    /** @deprecated Use DeploymentStatus::Failed */
     public const STATUS_FAILED = 'failed';
 
     /**
@@ -77,6 +104,14 @@ class DeployerDeployment extends Model
     }
 
     /**
+     * Get the database connection for the model.
+     */
+    public function getConnectionName(): ?string
+    {
+        return static::getDeploymentConnection();
+    }
+
+    /**
      * Boot the model.
      */
     protected static function boot(): void
@@ -87,19 +122,38 @@ class DeployerDeployment extends Model
             if (empty($deployment->uuid)) {
                 $deployment->uuid = (string) Str::uuid();
             }
-
-            // Auto-compute approval token hash
-            if (! empty($deployment->approval_token) && empty($deployment->approval_token_hash)) {
-                $deployment->approval_token_hash = hash('sha256', $deployment->approval_token);
-            }
         });
 
-        static::updating(function (DeployerDeployment $deployment) {
-            // Update hash when token changes
-            if ($deployment->isDirty('approval_token') && ! empty($deployment->approval_token)) {
-                $deployment->approval_token_hash = hash('sha256', $deployment->approval_token);
-            }
+        static::created(function (DeployerDeployment $deployment) {
+            event(new DeploymentCreated($deployment));
         });
+    }
+
+    /**
+     * Set the approval token (stores hash only, keeps plaintext transiently for URL generation).
+     */
+    public function setApprovalToken(string $token): self
+    {
+        $this->plaintextApprovalToken = $token;
+        $this->approval_token_hash = hash('sha256', $token);
+
+        return $this;
+    }
+
+    /**
+     * Get the plaintext approval token (only available immediately after creation).
+     */
+    public function getPlaintextApprovalToken(): ?string
+    {
+        return $this->plaintextApprovalToken;
+    }
+
+    /**
+     * Check if the plaintext token is available for URL generation.
+     */
+    public function hasPlaintextToken(): bool
+    {
+        return $this->plaintextApprovalToken !== null;
     }
 
     /*
@@ -179,72 +233,62 @@ class DeployerDeployment extends Model
 
     public function isPendingApproval(): bool
     {
-        return $this->status === self::STATUS_PENDING_APPROVAL;
+        return $this->status === DeploymentStatus::PendingApproval;
     }
 
     public function isApproved(): bool
     {
-        return $this->status === self::STATUS_APPROVED;
+        return $this->status === DeploymentStatus::Approved;
     }
 
     public function isRejected(): bool
     {
-        return $this->status === self::STATUS_REJECTED;
+        return $this->status === DeploymentStatus::Rejected;
     }
 
     public function isExpired(): bool
     {
-        return $this->status === self::STATUS_EXPIRED;
+        return $this->status === DeploymentStatus::Expired;
     }
 
     public function isQueued(): bool
     {
-        return $this->status === self::STATUS_QUEUED;
+        return $this->status === DeploymentStatus::Queued;
     }
 
     public function isRunning(): bool
     {
-        return $this->status === self::STATUS_RUNNING;
+        return $this->status === DeploymentStatus::Running;
     }
 
     public function isSuccess(): bool
     {
-        return $this->status === self::STATUS_SUCCESS;
+        return $this->status === DeploymentStatus::Success;
     }
 
     public function isFailed(): bool
     {
-        return $this->status === self::STATUS_FAILED;
+        return $this->status === DeploymentStatus::Failed;
     }
 
     public function isComplete(): bool
     {
-        return in_array($this->status, [
-            self::STATUS_SUCCESS,
-            self::STATUS_FAILED,
-            self::STATUS_REJECTED,
-            self::STATUS_EXPIRED,
-        ]);
+        return $this->status->isComplete();
     }
 
     public function isActive(): bool
     {
-        return in_array($this->status, [
-            self::STATUS_PENDING_APPROVAL,
-            self::STATUS_APPROVED,
-            self::STATUS_QUEUED,
-            self::STATUS_RUNNING,
-        ]);
+        return $this->status->isActive();
     }
 
     public function isSimpleStrategy(): bool
     {
-        return $this->strategy === 'simple';
+        return $this->strategy === DeploymentStrategy::Simple;
     }
 
     public function isAdvancedStrategy(): bool
     {
-        return $this->strategy === 'advanced';
+        return $this->strategy === DeploymentStrategy::Advanced;
     }
 
     /*
@@ -275,11 +319,13 @@ class DeployerDeployment extends Model
         }
 
         $this->update([
-            'status' => self::STATUS_QUEUED,
+            'status' => DeploymentStatus::Queued,
             'approved_by' => $approvedBy,
             'approved_at' => now(),
             'queued_at' => now(),
         ]);
+
+        event(new DeploymentApproved($this, $approvedBy));
 
         return $this;
     }
@@ -291,11 +337,13 @@ class DeployerDeployment extends Model
         }
 
         $this->update([
-            'status' => self::STATUS_REJECTED,
+            'status' => DeploymentStatus::Rejected,
             'rejected_by' => $rejectedBy,
             'rejected_at' => now(),
             'rejection_reason' => $reason,
         ]);
+
+        event(new DeploymentRejected($this, $rejectedBy, $reason));
 
         return $this;
     }
@@ -307,7 +355,7 @@ class DeployerDeployment extends Model
         }
 
         $this->update([
-            'status' => self::STATUS_EXPIRED,
+            'status' => DeploymentStatus::Expired,
         ]);
 
         return $this;
@@ -316,7 +364,7 @@ class DeployerDeployment extends Model
     public function markQueued(): self
     {
         $this->update([
-            'status' => self::STATUS_QUEUED,
+            'status' => DeploymentStatus::Queued,
             'queued_at' => now(),
         ]);
 
@@ -326,9 +374,11 @@ class DeployerDeployment extends Model
     public function markRunning(): self
     {
         $this->update([
-            'status' => self::STATUS_RUNNING,
+            'status' => DeploymentStatus::Running,
             'started_at' => now(),
         ]);
+
+        event(new DeploymentStarted($this));
 
         return $this;
     }
@@ -336,7 +386,7 @@ class DeployerDeployment extends Model
     public function markSuccess(string $output, ?string $releaseName = null): self
     {
         $data = [
-            'status' => self::STATUS_SUCCESS,
+            'status' => DeploymentStatus::Success,
             'completed_at' => now(),
             'output' => $output,
             'exit_code' => 0,
@@ -349,18 +399,23 @@ class DeployerDeployment extends Model
 
         $this->update($data);
 
+        event(new DeploymentCompleted($this, success: true, releaseName: $releaseName));
+
         return $this;
     }
 
     public function markFailed(string $output, int $exitCode): self
     {
         $this->update([
-            'status' => self::STATUS_FAILED,
+            'status' => DeploymentStatus::Failed,
             'completed_at' => now(),
             'output' => $output,
             'exit_code' => $exitCode,
             'duration_seconds' => $this->started_at?->diffInSeconds(now()),
         ]);
+
+        event(new DeploymentFailedEvent($this, $output, $exitCode));
+        event(new DeploymentCompleted($this, success: false));
 
         return $this;
     }
@@ -373,18 +428,36 @@ class DeployerDeployment extends Model
 
     public function getApproveUrl(): string
     {
+        $token = $this->plaintextApprovalToken;
+
+        if (! $token) {
+            throw new \RuntimeException(
+                'Approval URL can only be generated immediately after deployment creation. '.
+                'The plaintext token is not stored for security reasons.'
+            );
+        }
+
         return \Illuminate\Support\Facades\URL::signedRoute(
             'continuous-delivery.approve.confirm',
-            ['token' => $this->approval_token],
+            ['token' => $token],
             $this->approval_expires_at
         );
     }
 
     public function getRejectUrl(): string
     {
+        $token = $this->plaintextApprovalToken;
+
+        if (! $token) {
+            throw new \RuntimeException(
+                'Rejection URL can only be generated immediately after deployment creation. '.
+                'The plaintext token is not stored for security reasons.'
+            );
+        }
+
         return \Illuminate\Support\Facades\URL::signedRoute(
             'continuous-delivery.reject.confirm',
-            ['token' => $this->approval_token],
+            ['token' => $token],
             $this->approval_expires_at
         );
     }
@@ -442,16 +515,16 @@ class DeployerDeployment extends Model
 
     public function scopePending($query)
     {
-        return $query->where('status', self::STATUS_PENDING_APPROVAL);
+        return $query->where('status', DeploymentStatus::PendingApproval);
     }
 
     public function scopeActive($query)
     {
         return $query->whereIn('status', [
-            self::STATUS_PENDING_APPROVAL,
-            self::STATUS_APPROVED,
-            self::STATUS_QUEUED,
-            self::STATUS_RUNNING,
+            DeploymentStatus::PendingApproval,
+            DeploymentStatus::Approved,
+            DeploymentStatus::Queued,
+            DeploymentStatus::Running,
         ]);
     }
 
@@ -467,7 +540,7 @@ class DeployerDeployment extends Model
 
     public function scopeExpired($query)
     {
-        return $query->where('status', self::STATUS_PENDING_APPROVAL)
+        return $query->where('status', DeploymentStatus::PendingApproval)
             ->where('approval_expires_at', '<', now());
     }
 
@@ -478,7 +551,7 @@ class DeployerDeployment extends Model
 
     public function scopeSuccessful($query)
     {
-        return $query->where('status', self::STATUS_SUCCESS);
+        return $query->where('status', DeploymentStatus::Success);
     }
 
     /*
@@ -493,30 +566,46 @@ class DeployerDeployment extends Model
         string $triggerType,
         string $triggerRef,
         array $payload,
+        ?string $githubDeliveryId = null,
     ): self {
         $requiresApproval = $app->requiresApproval($trigger);
-        $approvalToken = $requiresApproval ? Str::random(64) : null;
         $approvalTimeoutHours = $app->getApprovalTimeout($trigger);
 
-        return self::create([
+        $deployment = new self([
             'app_key' => $app->key,
             'app_name' => $app->name,
             'trigger_name' => $trigger['name'],
-            'trigger_type' => $triggerType,
+            'trigger_type' => TriggerType::tryFrom($triggerType) ?? $triggerType,
             'trigger_ref' => $triggerRef,
             'repository' => $payload['repository']['full_name'] ?? $app->repository,
             'commit_sha' => self::extractCommitSha($payload, $triggerType),
             'commit_message' => $payload['head_commit']['message'] ?? $payload['release']['body'] ?? null,
             'author' => $payload['sender']['login'] ?? 'unknown',
-            'strategy' => $app->strategy,
+            'strategy' => DeploymentStrategy::tryFrom($app->strategy) ?? $app->strategy,
             'envoy_story' => $app->getEnvoyStory($trigger),
-            'status' => $requiresApproval ? self::STATUS_PENDING_APPROVAL : self::STATUS_QUEUED,
-            'approval_token' => $approvalToken,
-            'approval_token_hash' => $approvalToken ? hash('sha256', $approvalToken) : null,
+            'status' => $requiresApproval ? DeploymentStatus::PendingApproval : DeploymentStatus::Queued,
             'approval_expires_at' => $requiresApproval ? now()->addHours($approvalTimeoutHours) : null,
             'queued_at' => $requiresApproval ? null : now(),
+            'github_delivery_id' => $githubDeliveryId,
             'payload' => $payload,
         ]);
+
+        // Set approval token (stores hash, keeps plaintext transiently)
+        if ($requiresApproval) {
+            $deployment->setApprovalToken(Str::random(64));
+        }
+
+        $deployment->save();
+
+        return $deployment;
+    }
+
+    /**
+     * Find a deployment by its GitHub delivery ID.
+     */
+    public static function findByGithubDeliveryId(string $deliveryId): ?self
+    {
+        return static::where('github_delivery_id', $deliveryId)->first();
     }
 
     public static function createManual(
@@ -529,14 +618,14 @@ class DeployerDeployment extends Model
             'app_key' => $app->key,
             'app_name' => $app->name,
             'trigger_name' => $trigger['name'],
-            'trigger_type' => 'manual',
+            'trigger_type' => TriggerType::Manual,
             'trigger_ref' => $ref,
             'repository' => $app->repository,
             'commit_sha' => $commitSha ?? 'HEAD',
             'author' => 'manual',
-            'strategy' => $app->strategy,
+            'strategy' => DeploymentStrategy::tryFrom($app->strategy) ?? $app->strategy,
             'envoy_story' => $app->getEnvoyStory($trigger),
-            'status' => self::STATUS_QUEUED,
+            'status' => DeploymentStatus::Queued,
             'queued_at' => now(),
         ]);
     }
@@ -552,14 +641,14 @@ class DeployerDeployment extends Model
             'app_key' => $app->key,
             'app_name' => $app->name,
             'trigger_name' => 'rollback',
-            'trigger_type' => 'rollback',
+            'trigger_type' => TriggerType::Rollback,
             'trigger_ref' => $targetRelease,
             'repository' => $app->repository,
             'commit_sha' => $commitSha ?? 'rollback',
             'author' => 'rollback',
-            'strategy' => $app->strategy,
+            'strategy' => DeploymentStrategy::tryFrom($app->strategy) ?? $app->strategy,
             'envoy_story' => $story,
-            'status' => self::STATUS_QUEUED,
+            'status' => DeploymentStatus::Queued,
             'queued_at' => now(),
         ]);
     }
@@ -582,20 +671,14 @@ class DeployerDeployment extends Model
      */
     public static function findByApprovalToken(string $token): ?self
     {
-        if (strlen($token) !== 64) {
+        $tokenLength = config('continuous-delivery.approval.token_length', 64);
+
+        if (strlen($token) !== $tokenLength) {
             return null;
         }
 
         $tokenHash = hash('sha256', $token);
 
-        // First try hash lookup (new records)
-        $deployment = static::where('approval_token_hash', $tokenHash)->first();
-
-        if ($deployment) {
-            return $deployment;
-        }
-
-        // Fallback to direct token lookup for legacy records
-        return static::where('approval_token', $token)->first();
+        return static::where('approval_token_hash', $tokenHash)->first();
     }
 }

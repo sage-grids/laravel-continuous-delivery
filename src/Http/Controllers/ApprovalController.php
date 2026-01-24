@@ -6,13 +6,17 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
-use SageGrids\ContinuousDelivery\Jobs\RunDeployJob;
 use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentApproved;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentRejected;
+use SageGrids\ContinuousDelivery\Services\DeploymentDispatcher;
 
 class ApprovalController extends Controller
 {
+    public function __construct(
+        protected DeploymentDispatcher $dispatcher
+    ) {}
+
     /**
      * Show approval confirmation.
      */
@@ -44,12 +48,13 @@ class ApprovalController extends Controller
         if (! $deployment->canBeApproved()) {
             return $this->renderError(
                 'Cannot Approve',
-                "This deployment cannot be approved. Current status: {$deployment->status}"
+                "This deployment cannot be approved. Current status: {$deployment->status->value}"
             );
         }
 
         return response()->view('continuous-delivery::confirm-approval', [
             'deployment' => $deployment,
+            'token' => $token,
         ]);
     }
 
@@ -89,7 +94,7 @@ class ApprovalController extends Controller
         if (! $deployment->canBeApproved()) {
             return $this->renderError(
                 'Cannot Approve',
-                "This deployment cannot be approved. Current status: {$deployment->status}"
+                "This deployment cannot be approved. Current status: {$deployment->status->value}"
             );
         }
 
@@ -145,12 +150,13 @@ class ApprovalController extends Controller
         if (! $deployment->canBeRejected()) {
             return $this->renderError(
                 'Cannot Reject',
-                "This deployment cannot be rejected. Current status: {$deployment->status}"
+                "This deployment cannot be rejected. Current status: {$deployment->status->value}"
             );
         }
 
         return response()->view('continuous-delivery::confirm-rejection', [
             'deployment' => $deployment,
+            'token' => $token,
         ]);
     }
 
@@ -178,7 +184,7 @@ class ApprovalController extends Controller
         if (! $deployment->canBeRejected()) {
             return $this->renderError(
                 'Cannot Reject',
-                "This deployment cannot be rejected. Current status: {$deployment->status}"
+                "This deployment cannot be rejected. Current status: {$deployment->status->value}"
             );
         }
 
@@ -216,7 +222,9 @@ class ApprovalController extends Controller
      */
     protected function findDeployment(string $token, Request $request): ?DeployerDeployment
     {
-        if (strlen($token) !== 64) {
+        $tokenLength = config('continuous-delivery.approval.token_length', 64);
+
+        if (strlen($token) !== $tokenLength) {
             $this->logFailedAttempt($request, 'invalid_token_length', $token);
 
             return null;
@@ -262,20 +270,7 @@ class ApprovalController extends Controller
      */
     protected function dispatchDeployment(DeployerDeployment $deployment): void
     {
-        $job = new RunDeployJob($deployment);
-
-        $connection = config('continuous-delivery.queue.connection');
-        $queue = config('continuous-delivery.queue.queue');
-
-        if ($connection) {
-            $job->onConnection($connection);
-        }
-
-        if ($queue) {
-            $job->onQueue($queue);
-        }
-
-        dispatch($job);
+        $this->dispatcher->dispatch($deployment);
     }
 
     /**

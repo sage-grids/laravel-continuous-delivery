@@ -107,7 +107,7 @@
             </div>
             <div class="detail-row">
                 <span class="detail-label">Trigger</span>
-                <span class="detail-value">{{ $deployment->trigger_type }}:{{ $deployment->trigger_ref }}</span>
+                <span class="detail-value">{{ $deployment->trigger_type->value }}:{{ $deployment->trigger_ref }}</span>
             </div>
             <div class="detail-row">
                 <span class="detail-label">Commit</span>

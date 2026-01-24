@@ -6,16 +6,17 @@ use Illuminate\Support\Facades\Process;
 use SageGrids\ContinuousDelivery\Config\AppConfig;
 use SageGrids\ContinuousDelivery\Config\DeployerResult;
 use SageGrids\ContinuousDelivery\Contracts\DeployerStrategy;
+use SageGrids\ContinuousDelivery\Deployers\Concerns\ResolvesEnvoyBinary;
 use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 class SimpleDeployer implements DeployerStrategy
 {
+    use ResolvesEnvoyBinary;
     public function deploy(AppConfig $app, DeployerDeployment $deployment): DeployerResult
     {
         $command = $this->buildEnvoyCommand($app, $deployment);
-        $timeout = config('continuous-delivery.envoy.timeout', 1800);
 
-        $result = Process::timeout($timeout)->run($command);
+        $result = Process::timeout($this->getEnvoyTimeout())->run($command);
 
         return new DeployerResult(
             success: $result->successful(),
@@ -95,7 +96,7 @@ class SimpleDeployer implements DeployerStrategy
     protected function buildEnvoyCommand(AppConfig $app, DeployerDeployment $deployment, ?string $story = null, ?string $ref = null): string
     {
         $envoyBinary = $this->getEnvoyBinary();
-        $envoyPath = config('continuous-delivery.envoy.path', base_path('Envoy.blade.php'));
+        $envoyPath = $this->getEnvoyPath();
         $envoyStory = $story ?? $deployment->envoy_story;
 
         $vars = [
@@ -121,26 +122,4 @@ class SimpleDeployer implements DeployerStrategy
         );
     }
 
-    protected function getEnvoyBinary(): string
-    {
-        $configBinary = config('continuous-delivery.envoy.binary');
-        if ($configBinary && file_exists($configBinary)) {
-            return $configBinary;
-        }
-
-        // Try common locations
-        $locations = [
-            base_path('vendor/bin/envoy'),
-            '/usr/local/bin/envoy',
-            'envoy',
-        ];
-
-        foreach ($locations as $location) {
-            if ($location === 'envoy' || file_exists($location)) {
-                return $location;
-            }
-        }
-
-        return 'envoy';
-    }
 }

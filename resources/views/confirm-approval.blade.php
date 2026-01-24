@@ -88,7 +88,7 @@
             </div>
             <div class="detail-row">
                 <span class="detail-label">Trigger</span>
-                <span class="detail-value">{{ $deployment->trigger_type }}:{{ $deployment->trigger_ref }}</span>
+                <span class="detail-value">{{ $deployment->trigger_type->value }}:{{ $deployment->trigger_ref }}</span>
             </div>
             <div class="detail-row">
                 <span class="detail-label">Commit</span>
@@ -99,7 +99,7 @@
                 <span class="detail-value">{{ $deployment->author }}</span>
             </div>
         </div>
-        <form action="{{ \Illuminate\Support\Facades\URL::signedRoute('continuous-delivery.approve', ['token' => $deployment->approval_token], $deployment->approval_expires_at) }}" method="POST" class="actions">
+        <form action="{{ \Illuminate\Support\Facades\URL::signedRoute('continuous-delivery.approve', ['token' => $token], $deployment->approval_expires_at) }}" method="POST" class="actions">
             @csrf
             <button type="submit" class="btn btn-confirm">Yes, Approve Deployment</button>
         </form>

@@ -6,11 +6,13 @@ use Illuminate\Support\Facades\Process;
 use SageGrids\ContinuousDelivery\Config\AppConfig;
 use SageGrids\ContinuousDelivery\Config\DeployerResult;
 use SageGrids\ContinuousDelivery\Contracts\DeployerStrategy;
+use SageGrids\ContinuousDelivery\Deployers\Concerns\ResolvesEnvoyBinary;
 use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Models\DeployerRelease;
 
 class AdvancedDeployer implements DeployerStrategy
 {
+    use ResolvesEnvoyBinary;
     public function deploy(AppConfig $app, DeployerDeployment $deployment): DeployerResult
     {
         $releaseName = $this->generateReleaseName($deployment);
@@ -24,9 +26,8 @@ class AdvancedDeployer implements DeployerStrategy
 
         // Run Envoy with advanced deployment tasks
         $command = $this->buildEnvoyCommand($app, $deployment, $releaseName);
-        $timeout = config('continuous-delivery.envoy.timeout', 1800);
 
-        $result = Process::timeout($timeout)->run($command);
+        $result = Process::timeout($this->getEnvoyTimeout())->run($command);
 
         if ($result->successful()) {
             // Track the release
@@ -146,7 +147,7 @@ class AdvancedDeployer implements DeployerStrategy
     protected function buildEnvoyCommand(AppConfig $app, DeployerDeployment $deployment, ?string $releaseName = null, ?string $story = null): string
     {
         $envoyBinary = $this->getEnvoyBinary();
-        $envoyPath = config('continuous-delivery.envoy.path', base_path('Envoy.blade.php'));
+        $envoyPath = $this->getEnvoyPath();
         $envoyStory = $story ?? $deployment->envoy_story;
 
         $vars = [
@@ -180,7 +181,7 @@ class AdvancedDeployer implements DeployerStrategy
         return sprintf(
             '%s run %s --path=%s %s 2>&1',
             $envoyBinary,
-            $deployment->envoy_story,
+            $envoyStory,
             escapeshellarg($envoyPath),
             $varString
         );
@@ -189,28 +190,6 @@ class AdvancedDeployer implements DeployerStrategy
     protected function generateReleaseName(DeployerDeployment $deployment): string
     {
         return date('Ymd_His').'_'.substr($deployment->commit_sha, 0, 7);
-    }
-
-    protected function getEnvoyBinary(): string
-    {
-        $configBinary = config('continuous-delivery.envoy.binary');
-        if ($configBinary && file_exists($configBinary)) {
-            return $configBinary;
-        }
-
-        $locations = [
-            base_path('vendor/bin/envoy'),
-            '/usr/local/bin/envoy',
-            'envoy',
-        ];
-
-        foreach ($locations as $location) {
-            if ($location === 'envoy' || file_exists($location)) {
-                return $location;
-            }
-        }
-
-        return 'envoy';
     }
 
     protected function getDirectorySize(string $path): ?int

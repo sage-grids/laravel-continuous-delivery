@@ -10,16 +10,17 @@ use Illuminate\Support\Facades\Log;
 use SageGrids\ContinuousDelivery\Config\AppConfig;
 use SageGrids\ContinuousDelivery\Config\AppRegistry;
 use SageGrids\ContinuousDelivery\Exceptions\DeploymentConflictException;
-use SageGrids\ContinuousDelivery\Jobs\RunDeployJob;
 use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentApprovalRequired;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentStarted;
+use SageGrids\ContinuousDelivery\Services\DeploymentDispatcher;
 use SageGrids\ContinuousDelivery\Support\Signature;
 
 class DeployController extends Controller
 {
     public function __construct(
-        protected AppRegistry $registry
+        protected AppRegistry $registry,
+        protected DeploymentDispatcher $dispatcher
     ) {}
 
     /**
@@ -35,15 +36,32 @@ class DeployController extends Controller
         }
 
         $event = $request->header('X-GitHub-Event');
+        $deliveryId = $request->header('X-GitHub-Delivery');
         $payload = $request->json()->all();
 
         Log::info('[continuous-delivery] Received webhook', [
             'event' => $event,
-            'delivery_id' => $request->header('X-GitHub-Delivery'),
+            'delivery_id' => $deliveryId,
         ]);
 
         if ($event === 'ping') {
             return response()->json(['message' => 'pong']);
+        }
+
+        // Check for idempotency - if we've already processed this delivery, return the existing deployment
+        if ($deliveryId) {
+            $existingDeployment = DeployerDeployment::findByGithubDeliveryId($deliveryId);
+            if ($existingDeployment) {
+                Log::info('[continuous-delivery] Duplicate webhook detected', [
+                    'delivery_id' => $deliveryId,
+                    'existing_uuid' => $existingDeployment->uuid,
+                ]);
+
+                return response()->json([
+                    'message' => 'Webhook already processed',
+                    'deployment' => $existingDeployment->uuid,
+                ], 200);
+            }
         }
 
         // Determine event type and ref
@@ -82,7 +100,8 @@ class DeployController extends Controller
                     $match['trigger'],
                     $eventType,
                     $ref,
-                    $payload
+                    $payload,
+                    $deliveryId
                 );
 
                 if ($deployment) {
@@ -103,7 +122,7 @@ class DeployController extends Controller
                     $deployments[] = [
                         'uuid' => $deployment->uuid,
                         'app' => $deployment->app_key,
-                        'status' => $deployment->status,
+                        'status' => $deployment->status->value,
                     ];
                 }
             }
@@ -154,10 +173,11 @@ class DeployController extends Controller
         array $trigger,
         string $triggerType,
         string $triggerRef,
-        array $payload
+        array $payload,
+        ?string $githubDeliveryId = null
     ): ?DeployerDeployment {
         return DB::connection(DeployerDeployment::getDeploymentConnection())
-            ->transaction(function () use ($app, $trigger, $triggerType, $triggerRef, $payload) {
+            ->transaction(function () use ($app, $trigger, $triggerType, $triggerRef, $payload, $githubDeliveryId) {
                 // Check for active deployment with pessimistic locking
                 $activeDeployment = DeployerDeployment::forApp($app->key)
                     ->forTrigger($trigger['name'])
@@ -174,7 +194,8 @@ class DeployController extends Controller
                     $trigger,
                     $triggerType,
                     $triggerRef,
-                    $payload
+                    $payload,
+                    $githubDeliveryId
                 );
             });
     }
@@ -185,21 +206,7 @@ class DeployController extends Controller
     protected function dispatchDeployment(DeployerDeployment $deployment): void
     {
         $this->notifyDeploymentStarted($deployment);
-
-        $job = new RunDeployJob($deployment);
-
-        $connection = config('continuous-delivery.queue.connection');
-        $queue = config('continuous-delivery.queue.queue');
-
-        if ($connection) {
-            $job->onConnection($connection);
-        }
-
-        if ($queue) {
-            $job->onQueue($queue);
-        }
-
-        dispatch($job);
+        $this->dispatcher->dispatch($deployment);
     }
 
     /**
@@ -267,8 +274,8 @@ class DeployController extends Controller
             'app' => $deployment->app_key,
             'app_name' => $deployment->app_name,
             'trigger' => "{$deployment->trigger_name}:{$deployment->trigger_ref}",
-            'strategy' => $deployment->strategy,
-            'status' => $deployment->status,
+            'strategy' => $deployment->strategy->value,
+            'status' => $deployment->status->value,
             'commit' => $deployment->short_commit_sha,
             'author' => $deployment->author,
             'release_name' => $deployment->release_name,

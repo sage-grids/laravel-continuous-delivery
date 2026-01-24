@@ -2,8 +2,20 @@
 
 namespace SageGrids\ContinuousDelivery\Config;
 
+use SageGrids\ContinuousDelivery\Enums\DeploymentStrategy;
+use SageGrids\ContinuousDelivery\Exceptions\InvalidConfigurationException;
+
 class AppConfig
 {
+    /**
+     * Valid deployment strategies.
+     */
+    private const VALID_STRATEGIES = ['simple', 'advanced'];
+
+    /**
+     * Valid trigger event types.
+     */
+    private const VALID_TRIGGER_EVENTS = ['push', 'release'];
     public function __construct(
         public readonly string $key,
         public readonly string $name,
@@ -18,6 +30,12 @@ class AppConfig
 
     public static function fromArray(string $key, array $config): self
     {
+        $errors = self::validate($key, $config);
+
+        if (! empty($errors)) {
+            throw new InvalidConfigurationException($key, $errors);
+        }
+
         $strategy = $config['strategy'] ?? 'simple';
 
         return new self(
@@ -33,14 +51,102 @@ class AppConfig
         );
     }
 
+    /**
+     * Validate app configuration.
+     *
+     * @return array<string> Validation errors
+     */
+    public static function validate(string $key, array $config): array
+    {
+        $errors = [];
+
+        // Validate strategy
+        $strategy = $config['strategy'] ?? 'simple';
+        if (! in_array($strategy, self::VALID_STRATEGIES, true)) {
+            $errors[] = sprintf(
+                "Invalid strategy '%s'. Must be one of: %s",
+                $strategy,
+                implode(', ', self::VALID_STRATEGIES)
+            );
+        }
+
+        // Validate triggers
+        $triggers = $config['triggers'] ?? [];
+        foreach ($triggers as $index => $trigger) {
+            $triggerErrors = self::validateTrigger($trigger, $index);
+            $errors = array_merge($errors, $triggerErrors);
+        }
+
+        // Validate path doesn't contain dangerous characters
+        $path = $config['path'] ?? '';
+        if ($path !== '' && preg_match('/[;&|`$]/', $path)) {
+            $errors[] = "Path contains potentially dangerous characters";
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Validate a single trigger configuration.
+     *
+     * @return array<string> Validation errors
+     */
+    protected static function validateTrigger(array $trigger, int $index): array
+    {
+        $errors = [];
+        $prefix = "Trigger [{$index}]";
+
+        // Name is required
+        if (empty($trigger['name'])) {
+            $errors[] = "{$prefix}: 'name' is required";
+        }
+
+        // Event type is required and must be valid
+        $eventType = $trigger['on'] ?? null;
+        if (empty($eventType)) {
+            $errors[] = "{$prefix}: 'on' (event type) is required";
+        } elseif (! in_array($eventType, self::VALID_TRIGGER_EVENTS, true)) {
+            $errors[] = sprintf(
+                "%s: Invalid event type '%s'. Must be one of: %s",
+                $prefix,
+                $eventType,
+                implode(', ', self::VALID_TRIGGER_EVENTS)
+            );
+        }
+
+        // Push triggers should have a branch
+        if ($eventType === 'push' && empty($trigger['branch'])) {
+            $errors[] = "{$prefix}: 'branch' is required for push triggers";
+        }
+
+        // Release triggers should have a tag_pattern
+        if ($eventType === 'release' && empty($trigger['tag_pattern'])) {
+            $errors[] = "{$prefix}: 'tag_pattern' is required for release triggers";
+        }
+
+        // Validate tag_pattern is a valid regex
+        if (! empty($trigger['tag_pattern'])) {
+            if (@preg_match($trigger['tag_pattern'], '') === false) {
+                $errors[] = "{$prefix}: 'tag_pattern' is not a valid regular expression";
+            }
+        }
+
+        // Validate approval_timeout is positive
+        if (isset($trigger['approval_timeout']) && $trigger['approval_timeout'] <= 0) {
+            $errors[] = "{$prefix}: 'approval_timeout' must be a positive number";
+        }
+
+        return $errors;
+    }
+
     public function isSimple(): bool
     {
-        return $this->strategy === 'simple';
+        return $this->strategy === DeploymentStrategy::Simple->value;
     }
 
     public function isAdvanced(): bool
     {
-        return $this->strategy === 'advanced';
+        return $this->strategy === DeploymentStrategy::Advanced->value;
     }
 
     public function getServers(): array

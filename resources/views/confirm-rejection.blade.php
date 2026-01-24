@@ -81,7 +81,7 @@
             <h1>Reject Deployment</h1>
             <p>Are you sure you want to reject this deployment?</p>
         </div>
-        <form action="{{ \Illuminate\Support\Facades\URL::signedRoute('continuous-delivery.reject', ['token' => $deployment->approval_token], $deployment->approval_expires_at) }}" method="POST">
+        <form action="{{ \Illuminate\Support\Facades\URL::signedRoute('continuous-delivery.reject', ['token' => $token], $deployment->approval_expires_at) }}" method="POST">
             @csrf
             <div class="content">
                 <div class="form-group">

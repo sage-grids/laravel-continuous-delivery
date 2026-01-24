@@ -4,6 +4,7 @@ namespace SageGrids\ContinuousDelivery\Tests\Unit;
 
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
+use SageGrids\ContinuousDelivery\Enums\DeploymentStatus;
 use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Tests\TestCase;
 
@@ -112,7 +113,7 @@ class DeploymentTest extends TestCase
 
         $deployment->approve('test@example.com');
 
-        $this->assertEquals(DeployerDeployment::STATUS_QUEUED, $deployment->status);
+        $this->assertEquals(DeploymentStatus::Queued, $deployment->status);
         $this->assertEquals('test@example.com', $deployment->approved_by);
         $this->assertNotNull($deployment->approved_at);
         $this->assertNotNull($deployment->queued_at);
@@ -142,7 +143,7 @@ class DeploymentTest extends TestCase
 
         $deployment->reject('test@example.com', 'Not ready for release');
 
-        $this->assertEquals(DeployerDeployment::STATUS_REJECTED, $deployment->status);
+        $this->assertEquals(DeploymentStatus::Rejected, $deployment->status);
         $this->assertEquals('test@example.com', $deployment->rejected_by);
         $this->assertEquals('Not ready for release', $deployment->rejection_reason);
         $this->assertNotNull($deployment->rejected_at);
@@ -170,7 +171,7 @@ class DeploymentTest extends TestCase
 
         $deployment->markRunning();
 
-        $this->assertEquals(DeployerDeployment::STATUS_RUNNING, $deployment->status);
+        $this->assertEquals(DeploymentStatus::Running, $deployment->status);
         $this->assertNotNull($deployment->started_at);
     }
 
@@ -184,7 +185,7 @@ class DeploymentTest extends TestCase
 
         $deployment->markSuccess('Deployment output here');
 
-        $this->assertEquals(DeployerDeployment::STATUS_SUCCESS, $deployment->status);
+        $this->assertEquals(DeploymentStatus::Success, $deployment->status);
         $this->assertEquals('Deployment output here', $deployment->output);
         $this->assertEquals(0, $deployment->exit_code);
         $this->assertNotNull($deployment->completed_at);
@@ -201,7 +202,7 @@ class DeploymentTest extends TestCase
 
         $deployment->markFailed('Error: deployment failed', 1);
 
-        $this->assertEquals(DeployerDeployment::STATUS_FAILED, $deployment->status);
+        $this->assertEquals(DeploymentStatus::Failed, $deployment->status);
         $this->assertEquals('Error: deployment failed', $deployment->output);
         $this->assertEquals(1, $deployment->exit_code);
         $this->assertNotNull($deployment->completed_at);
@@ -216,7 +217,7 @@ class DeploymentTest extends TestCase
 
         $deployment->expire();
 
-        $this->assertEquals(DeployerDeployment::STATUS_EXPIRED, $deployment->status);
+        $this->assertEquals(DeploymentStatus::Expired, $deployment->status);
     }
 
     #[Test]
@@ -228,7 +229,7 @@ class DeploymentTest extends TestCase
 
         $deployment->expire();
 
-        $this->assertEquals(DeployerDeployment::STATUS_QUEUED, $deployment->status);
+        $this->assertEquals(DeploymentStatus::Queued, $deployment->status);
     }
 
     #[Test]
@@ -272,7 +273,7 @@ class DeploymentTest extends TestCase
         $pending = DeployerDeployment::pending()->get();
 
         $this->assertCount(1, $pending);
-        $this->assertEquals(DeployerDeployment::STATUS_PENDING_APPROVAL, $pending->first()->status);
+        $this->assertEquals(DeploymentStatus::PendingApproval, $pending->first()->status);
     }
 
     #[Test]

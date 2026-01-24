@@ -29,7 +29,7 @@ class ApproveCommand extends Command
         }
 
         if (! $deployment->canBeApproved()) {
-            $this->error("Deployment cannot be approved. Status: {$deployment->status}");
+            $this->error("Deployment cannot be approved. Status: {$deployment->status->value}");
 
             if ($deployment->hasExpired()) {
                 $this->line('The approval window has expired.');
@@ -43,7 +43,7 @@ class ApproveCommand extends Command
         $this->table([], [
             ['UUID', $deployment->uuid],
             ['App', "{$deployment->app_key} ({$deployment->app_name})"],
-            ['Strategy', $deployment->strategy],
+            ['Strategy', $deployment->strategy->value],
             ['Trigger', "{$deployment->trigger_name}:{$deployment->trigger_ref}"],
             ['Commit', $deployment->short_commit_sha],
             ['Author', $deployment->author],

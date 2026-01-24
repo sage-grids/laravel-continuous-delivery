@@ -28,7 +28,7 @@ class RejectCommand extends Command
         }
 
         if (! $deployment->canBeRejected()) {
-            $this->error("Deployment cannot be rejected. Status: {$deployment->status}");
+            $this->error("Deployment cannot be rejected. Status: {$deployment->status->value}");
 
             return self::FAILURE;
         }
@@ -38,7 +38,7 @@ class RejectCommand extends Command
         $this->table([], [
             ['UUID', $deployment->uuid],
             ['App', "{$deployment->app_key} ({$deployment->app_name})"],
-            ['Strategy', $deployment->strategy],
+            ['Strategy', $deployment->strategy->value],
             ['Trigger', "{$deployment->trigger_name}:{$deployment->trigger_ref}"],
             ['Commit', $deployment->short_commit_sha],
             ['Author', $deployment->author],

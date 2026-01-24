@@ -2,6 +2,7 @@
 
 namespace SageGrids\ContinuousDelivery\Notifications\Concerns;
 
+use SageGrids\ContinuousDelivery\Enums\DeploymentStatus;
 use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 trait DeploymentNotification
@@ -141,7 +142,7 @@ trait DeploymentNotification
             'elements' => [
                 [
                     'type' => 'mrkdwn',
-                    'text' => "UUID: `{$this->deployment->uuid}` | Status: *{$this->deployment->status}*",
+                    'text' => "UUID: `{$this->deployment->uuid}` | Status: *{$this->deployment->status->value}*",
                 ],
             ],
         ];
@@ -209,14 +210,6 @@ trait DeploymentNotification
      */
     protected function getNotificationColor(): string
     {
-        return match ($this->deployment->status) {
-            DeployerDeployment::STATUS_SUCCESS => '#28a745',      // Green
-            DeployerDeployment::STATUS_FAILED => '#dc3545',       // Red
-            DeployerDeployment::STATUS_PENDING_APPROVAL => '#ffc107', // Yellow/Warning
-            DeployerDeployment::STATUS_REJECTED => '#6c757d',     // Gray
-            DeployerDeployment::STATUS_EXPIRED => '#6c757d',      // Gray
-            DeployerDeployment::STATUS_RUNNING => '#17a2b8',      // Info blue
-            default => '#007bff',                                  // Primary blue
-        };
+        return $this->deployment->status->color();
     }
 }
