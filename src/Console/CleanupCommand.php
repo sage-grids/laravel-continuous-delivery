@@ -14,6 +14,7 @@ class CleanupCommand extends Command
                             {--app= : Filter by app (or cleanup release directories)}
                             {--days=90 : Delete deployment records older than this many days}
                             {--releases : Also cleanup old release directories (advanced strategy)}
+                            {--rescue : Mark stuck deployments as failed}
                             {--dry-run : Show what would be deleted without actually deleting}
                             {--force : Skip confirmation}';
 
@@ -21,6 +22,10 @@ class CleanupCommand extends Command
 
     public function handle(AppRegistry $registry, DeployerFactory $factory): int
     {
+        if ($this->option('rescue')) {
+            return $this->rescueStuckDeployments();
+        }
+
         $days = (int) $this->option('days');
         $dryRun = $this->option('dry-run');
         $cleanupReleases = $this->option('releases');
@@ -117,6 +122,36 @@ class CleanupCommand extends Command
         if ($dryRun) {
             $this->newLine();
             $this->info('Dry run complete. No records or files deleted.');
+        }
+
+        return self::SUCCESS;
+    }
+
+    protected function rescueStuckDeployments(): int
+    {
+        $timeout = config('continuous-delivery.envoy.timeout', 1800);
+        // Add a buffer to the timeout
+        $cutoff = now()->subSeconds($timeout + 300);
+
+        $stuck = DeployerDeployment::where('status', DeployerDeployment::STATUS_RUNNING)
+            ->where('started_at', '<', $cutoff)
+            ->get();
+
+        if ($stuck->isEmpty()) {
+            $this->info('No stuck deployments found.');
+            return self::SUCCESS;
+        }
+
+        $this->info("Found {$stuck->count()} stuck deployments.");
+
+        foreach ($stuck as $deployment) {
+            if ($this->option('dry-run')) {
+                $this->line("  Would fail: {$deployment->uuid} (Started: {$deployment->started_at})");
+                continue;
+            }
+
+            $deployment->markFailed('Deployment timed out or process died.', 124);
+            $this->line("  Marked as failed: {$deployment->uuid}");
         }
 
         return self::SUCCESS;

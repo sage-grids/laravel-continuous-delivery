@@ -159,6 +159,7 @@ CD_NOTIFY_ON_EXPIRE=true
 - Statistically unique (62^64 combinations)
 - Single-use: token is consumed on approve/reject
 - Time-limited: expires after configured timeout
+- **Signed URLs:** Approval links are cryptographically signed to prevent tampering and ensure they are only valid until the expiration time.
 
 ### Approval Recording
 

@@ -41,12 +41,11 @@ class SimpleDeployer implements DeployerStrategy
 
     public function getAvailableReleases(AppConfig $app): array
     {
-        // This still runs locally which is a limitation for SimpleDeployer on remote servers
-        // unless we wrap this in Envoy too. For now, we'll keep it as is or improve later.
-        $command = sprintf(
-            'cd %s && git log --oneline -20',
-            escapeshellarg($app->path)
-        );
+        // Use Envoy to list releases (supports remote servers)
+        // Note: For multiple servers, this will output for all of them.
+        // We'll take the output and try to parse it.
+        $deployment = new DeployerDeployment(['app_key' => $app->key]);
+        $command = $this->buildEnvoyCommand($app, $deployment, 'simple-list-releases');
 
         $result = Process::run($command);
 
@@ -54,19 +53,43 @@ class SimpleDeployer implements DeployerStrategy
             return [];
         }
 
-        return collect(explode("\n", trim($result->output())))
-            ->filter()
-            ->map(function ($line) {
-                $parts = explode(' ', $line, 2);
+        // Envoy output often contains headers like [localhost]: ...
+        // We need to strip these or handle them.
+        // For simplicity, we'll parse lines that look like git log output.
+        // Git log --oneline format: <hash> <message>
+        
+        $lines = explode("\n", $result->output());
+        $releases = [];
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            // Remove Envoy server prefix if present e.g. [localhost]: a1b2c3d ...
+            $line = preg_replace('/^\[.*?\]:\s*/', '', $line);
+            
+            if (empty($line) || str_starts_with($line, '===')) {
+                continue;
+            }
+            
+            $parts = explode(' ', $line, 2);
+            if (count($parts) < 2) {
+                continue;
+            }
+            
+            $hash = $parts[0];
+            // Check if it looks like a short hash
+            if (! preg_match('/^[a-f0-9]{7,}$/i', $hash)) {
+                continue;
+            }
 
-                return [
-                    'name' => $parts[0],
-                    'sha' => $parts[0],
-                    'message' => $parts[1] ?? '',
-                    'is_active' => false,
-                ];
-            })
-            ->toArray();
+            $releases[] = [
+                'name' => $hash,
+                'sha' => $hash,
+                'message' => $parts[1] ?? '',
+                'is_active' => false, // Can't easily determine active in simple mode without more logic
+            ];
+        }
+
+        return $releases;
     }
 
     protected function buildEnvoyCommand(AppConfig $app, DeployerDeployment $deployment, ?string $story = null, ?string $ref = null): string
@@ -82,6 +105,7 @@ class SimpleDeployer implements DeployerStrategy
             'ref' => $ref ?? $deployment->trigger_ref ?? 'HEAD',
             'php' => 'php',
             'composer' => 'composer',
+            'servers_json' => json_encode($app->getServers()),
         ];
 
         $varString = collect($vars)

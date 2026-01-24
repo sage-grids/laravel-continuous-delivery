@@ -28,6 +28,12 @@ The core of the package is the `apps` array. Each app defines:
         // Deployment path
         'path' => '/var/www/my-app',
 
+        // Server list for remote deployment (optional, defaults to localhost)
+        'servers' => [
+            'web1' => 'user@192.168.1.10',
+            'web2' => 'user@192.168.1.11',
+        ],
+
         // Deployment strategy: 'simple' or 'advanced'
         'strategy' => 'simple',
 
@@ -160,7 +166,7 @@ Directory structure:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CD_DATABASE_CONNECTION` | `sqlite` | `sqlite` for isolated, `default` for app DB |
+| `CD_DATABASE_CONNECTION` | `sqlite` | `sqlite` for isolated, `default` or any other connection name for app DB |
 | `CD_DATABASE_PATH` | `/var/lib/sage-grids-cd/deployments.sqlite` | SQLite file path |
 
 ### Notifications
@@ -186,6 +192,25 @@ Directory structure:
 |----------|---------|-------------|
 | `CD_ENVOY_BINARY` | (auto) | Path to Envoy binary |
 | `CD_ENVOY_TIMEOUT` | `1800` | Max execution time in seconds |
+
+---
+
+## Maintenance Commands
+
+### Cleanup
+
+Clean up old deployment records and release directories:
+
+```bash
+# Clean up records older than 90 days
+php artisan deployer:cleanup --days=90
+
+# Also remove old release directories (advanced strategy)
+php artisan deployer:cleanup --releases
+
+# Rescue stuck deployments (mark running > 1h as failed)
+php artisan deployer:cleanup --rescue
+```
 
 ---
 

@@ -99,7 +99,7 @@
                 <span class="detail-value">{{ $deployment->author }}</span>
             </div>
         </div>
-        <form action="{{ route('continuous-delivery.approve', $deployment->approval_token) }}" method="POST" class="actions">
+        <form action="{{ \Illuminate\Support\Facades\URL::signedRoute('continuous-delivery.approve', ['token' => $deployment->approval_token], $deployment->approval_expires_at) }}" method="POST" class="actions">
             @csrf
             <button type="submit" class="btn btn-confirm">Yes, Approve Deployment</button>
         </form>

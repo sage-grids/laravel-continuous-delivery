@@ -84,6 +84,22 @@ sudo chmod 755 /var/lib/sage-grids-cd
 
 Update `CD_DATABASE_PATH` accordingly.
 
+### Remote Servers Configuration
+
+If deploying to remote servers instead of the local machine running the queue worker:
+
+1.  **Configure Servers:** Update `config/continuous-delivery.php` to include the `servers` array in your app config:
+    ```php
+    'servers' => [
+        'web1' => 'deployer@10.0.0.1',
+        'web2' => 'deployer@10.0.0.2',
+    ],
+    ```
+2.  **SSH Access:** Ensure the user running the queue worker (e.g., `www-data`) has SSH access to the target servers.
+    *   Generate SSH key for `www-data`: `sudo -u www-data ssh-keygen -t ed25519`
+    *   Copy public key to targets: `ssh-copy-id -i /var/www/.ssh/id_ed25519.pub deployer@10.0.0.1`
+    *   Verify connection: `sudo -u www-data ssh deployer@10.0.0.1 echo ok`
+
 ### Queue Worker
 
 Deployments run asynchronously via Laravel queues. Set up a persistent worker:

@@ -63,9 +63,17 @@ class DeployerDeployment extends Model
      */
     public static function getDeploymentConnection(): ?string
     {
-        return config('continuous-delivery.database.connection') === 'sqlite' 
-            ? 'continuous-delivery' 
-            : null; // Use default connection
+        $connection = config('continuous-delivery.database.connection');
+
+        if ($connection === 'default') {
+            return null;
+        }
+
+        if ($connection === 'sqlite') {
+            return 'continuous-delivery';
+        }
+
+        return $connection;
     }
 
     /**
@@ -365,12 +373,20 @@ class DeployerDeployment extends Model
 
     public function getApproveUrl(): string
     {
-        return route('continuous-delivery.approve.confirm', $this->approval_token);
+        return \Illuminate\Support\Facades\URL::signedRoute(
+            'continuous-delivery.approve.confirm',
+            ['token' => $this->approval_token],
+            $this->approval_expires_at
+        );
     }
 
     public function getRejectUrl(): string
     {
-        return route('continuous-delivery.reject.confirm', $this->approval_token);
+        return \Illuminate\Support\Facades\URL::signedRoute(
+            'continuous-delivery.reject.confirm',
+            ['token' => $this->approval_token],
+            $this->approval_expires_at
+        );
     }
 
     public function getStatusUrl(): string

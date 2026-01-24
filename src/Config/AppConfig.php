@@ -9,6 +9,7 @@ class AppConfig
         public readonly string $name,
         public readonly ?string $repository,
         public readonly string $path,
+        public readonly array $servers,
         public readonly string $strategy,  // 'simple' or 'advanced'
         public readonly array $strategyConfig,
         public readonly array $triggers,
@@ -24,6 +25,7 @@ class AppConfig
             name: $config['name'] ?? $key,
             repository: $config['repository'] ?? null,
             path: $config['path'] ?? base_path(),
+            servers: $config['servers'] ?? ['localhost' => '127.0.0.1'],
             strategy: $strategy,
             strategyConfig: $config[$strategy] ?? [],
             triggers: $config['triggers'] ?? [],
@@ -39,6 +41,11 @@ class AppConfig
     public function isAdvanced(): bool
     {
         return $this->strategy === 'advanced';
+    }
+
+    public function getServers(): array
+    {
+        return $this->servers;
     }
 
     public function getTrigger(string $name): ?array

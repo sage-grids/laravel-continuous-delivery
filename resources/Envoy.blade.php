@@ -20,9 +20,12 @@
     // Parse shared dirs and files from JSON
     $sharedDirs = isset($sharedDirs) ? json_decode($sharedDirs, true) : ['storage'];
     $sharedFiles = isset($sharedFiles) ? json_decode($sharedFiles, true) : ['.env'];
+
+    // Parse servers from JSON
+    $__servers = isset($servers_json) ? json_decode($servers_json, true) : ['localhost' => '127.0.0.1'];
 @endsetup
 
-@servers(['localhost' => '127.0.0.1'])
+@servers($__servers)
 
 {{-- ============================================= --}}
 {{-- SIMPLE STRATEGY STORIES                       --}}
@@ -115,6 +118,11 @@
     cd {{ $path }}
     git checkout HEAD~1
     echo "Rolled back to: $(git rev-parse --short HEAD)"
+@endtask
+
+@task('simple-list-releases')
+    cd {{ $path }}
+    git log --oneline -20
 @endtask
 
 {{-- ============================================= --}}

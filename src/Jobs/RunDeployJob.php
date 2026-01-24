@@ -3,6 +3,7 @@
 namespace SageGrids\ContinuousDelivery\Jobs;
 
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
@@ -16,7 +17,7 @@ use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentFailed;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentSucceeded;
 
-class RunDeployJob implements ShouldQueue
+class RunDeployJob implements ShouldQueue, ShouldBeUnique
 {
     use InteractsWithQueue, Queueable, SerializesModels;
 
@@ -30,9 +31,22 @@ class RunDeployJob implements ShouldQueue
      */
     public int $timeout = 1800;
 
+    /**
+     * The number of seconds after which the job's unique lock will be released.
+     */
+    public int $uniqueFor = 3600;
+
     public function __construct(
         public DeployerDeployment $deployment
     ) {}
+
+    /**
+     * The unique ID of the job.
+     */
+    public function uniqueId(): string
+    {
+        return $this->deployment->app_key;
+    }
 
     public function handle(AppRegistry $registry, DeployerFactory $factory): void
     {

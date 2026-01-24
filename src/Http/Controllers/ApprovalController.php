@@ -18,6 +18,13 @@ class ApprovalController extends Controller
      */
     public function confirmApprove(string $token, Request $request): Response
     {
+        if (! $request->hasValidSignature()) {
+            return $this->renderError(
+                'Invalid Link',
+                'This approval link is invalid or has expired.'
+            );
+        }
+
         $deployment = $this->findDeployment($token, $request);
 
         if (! $deployment) {
@@ -51,6 +58,18 @@ class ApprovalController extends Controller
      */
     public function approve(string $token, Request $request): Response
     {
+        // For POST actions, signature might strictly not be needed if we assume they come from the form which we just loaded.
+        // However, if the user bookmarks the form URL (without signature) it fails on GET.
+        // But for POST, the signature query param should still be there if the form action preserves query params.
+        // The form action usually is just the current URL.
+        // Let's enforce it for safety.
+        if (! $request->hasValidSignature()) {
+             return $this->renderError(
+                'Invalid Link',
+                'This action link is invalid or has expired.'
+            );
+        }
+
         $deployment = $this->findDeployment($token, $request);
 
         if (! $deployment) {
@@ -107,6 +126,13 @@ class ApprovalController extends Controller
      */
     public function confirmReject(string $token, Request $request): Response
     {
+        if (! $request->hasValidSignature()) {
+            return $this->renderError(
+                'Invalid Link',
+                'This rejection link is invalid or has expired.'
+            );
+        }
+
         $deployment = $this->findDeployment($token, $request);
 
         if (! $deployment) {
@@ -133,6 +159,13 @@ class ApprovalController extends Controller
      */
     public function reject(string $token, Request $request): Response
     {
+        if (! $request->hasValidSignature()) {
+             return $this->renderError(
+                'Invalid Link',
+                'This action link is invalid or has expired.'
+            );
+        }
+
         $deployment = $this->findDeployment($token, $request);
 
         if (! $deployment) {

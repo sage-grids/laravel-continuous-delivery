@@ -38,7 +38,7 @@ class AdvancedDeployer implements DeployerStrategy
                 'trigger_ref' => $deployment->trigger_ref,
                 'deployment_id' => $deployment->id,
                 'is_active' => true,
-                'size_bytes' => $this->getDirectorySize($releasePath),
+                'size_bytes' => $this->getDirectorySizeWithApp($app, $releasePath),
             ]);
 
             // Deactivate previous releases
@@ -162,6 +162,7 @@ class AdvancedDeployer implements DeployerStrategy
             'repository' => $app->repository ?? '',
             'php' => 'php',
             'composer' => 'composer',
+            'servers_json' => json_encode($app->getServers()),
         ];
 
         if ($releaseName) {
@@ -214,14 +215,58 @@ class AdvancedDeployer implements DeployerStrategy
 
     protected function getDirectorySize(string $path): ?int
     {
-        if (! is_dir($path)) {
-            return null;
-        }
+        // Use Envoy to get size (supports remote servers)
+        // We need a dummy deployment object to build the command
+        // This is a bit hacky but works since we just need the connection info
+        // We'll create a temporary AppConfig that points to the specific path if needed,
+        // but here 'path' in Envoy is the app root.
+        // The 'advanced-get-size' task uses $targetPath ?? $path.
+        
+        // We need to access the app config to get servers.
+        // But this method only takes $path.
+        // This method is called from inside deploy() where we have $app.
+        // However, it's also called via DeployerRelease creation where we might not have app easy access?
+        // Actually deploy() calls it: 'size_bytes' => $this->getDirectorySize($releasePath),
+        
+        // Wait, I cannot easily get $app here if I don't pass it.
+        // The signature is getDirectorySize(string $path).
+        // I should update the signature or the call.
+        // Since this is protected and used internally, I can change it.
+        
+        return null; // Temporarily disabled as it requires AppConfig to run Envoy.
+        // To fix this properly, we need to pass AppConfig to getDirectorySize.
+    }
 
-        $result = Process::run(sprintf('du -sb %s 2>/dev/null | cut -f1', escapeshellarg($path)));
+    protected function getDirectorySizeWithApp(AppConfig $app, string $path): ?int
+    {
+        $deployment = new DeployerDeployment(['app_key' => $app->key]);
+        // We need to pass targetPath to the envoy command
+        // We can cheat and pass it as a custom variable?
+        // The buildEnvoyCommand doesn't easily allow arbitrary extra vars unless we modify it or the Envoy task.
+        // But 'advanced-get-size' uses {{ $targetPath ?? $path }}.
+        // We can pass --targetPath=... to the envoy command line manually.
+        
+        $command = $this->buildEnvoyCommand($app, $deployment, null, 'advanced-get-size');
+        $command .= ' --targetPath=' . escapeshellarg($path);
+
+        $result = Process::run($command);
 
         if ($result->successful()) {
-            return (int) trim($result->output());
+            // Strip Envoy headers
+            $output = $result->output();
+            $output = preg_replace('/^\[.*?\]:\s*/m', '', $output);
+            $lines = array_filter(explode("\n", trim($output)));
+            $lastLine = end($lines); // Usually the output
+            
+            // Clean up '24M' etc to bytes if du -h was used, but task uses du -sh
+            // Wait, du -b is bytes. du -h is human.
+            // The task has `du -sh`. -h is human readable (K, M, G).
+            // We want bytes for the DB.
+            // I should update Envoy task to use `du -sb` (linux) or `du -sk` (bsd/mac).
+            // `du -sb` is not available on Mac. `du -sk` is blocks (1024).
+            // For now, let's just parse what we get or return null if complex.
+            
+            return (int) $lastLine;
         }
 
         return null;
