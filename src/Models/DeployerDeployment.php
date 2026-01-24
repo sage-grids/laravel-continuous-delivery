@@ -4,14 +4,17 @@ namespace SageGrids\ContinuousDelivery\Models;
 
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
+use SageGrids\ContinuousDelivery\Config\AppConfig;
+use SageGrids\ContinuousDelivery\Config\AppRegistry;
 
-class Deployment extends Model
+class DeployerDeployment extends Model
 {
     use Notifiable;
 
-    protected $table = 'deployments';
+    protected $table = 'deployer_deployments';
 
     protected $guarded = ['id'];
 
@@ -28,12 +31,19 @@ class Deployment extends Model
 
     // Status constants
     public const STATUS_PENDING_APPROVAL = 'pending_approval';
+
     public const STATUS_APPROVED = 'approved';
+
     public const STATUS_REJECTED = 'rejected';
+
     public const STATUS_EXPIRED = 'expired';
+
     public const STATUS_QUEUED = 'queued';
+
     public const STATUS_RUNNING = 'running';
+
     public const STATUS_SUCCESS = 'success';
+
     public const STATUS_FAILED = 'failed';
 
     /**
@@ -49,9 +59,9 @@ class Deployment extends Model
      */
     public static function getDeploymentConnection(): ?string
     {
-        $dbPath = config('continuous-delivery.storage.database');
+        $connection = config('continuous-delivery.database.connection');
 
-        return $dbPath ? 'continuous-delivery' : config('database.default');
+        return $connection === 'sqlite' ? 'continuous-delivery' : config('database.default');
     }
 
     /**
@@ -61,23 +71,34 @@ class Deployment extends Model
     {
         parent::boot();
 
-        static::creating(function (Deployment $deployment) {
+        static::creating(function (DeployerDeployment $deployment) {
             if (empty($deployment->uuid)) {
                 $deployment->uuid = (string) Str::uuid();
             }
 
             // Auto-compute approval token hash
-            if (!empty($deployment->approval_token) && empty($deployment->approval_token_hash)) {
+            if (! empty($deployment->approval_token) && empty($deployment->approval_token_hash)) {
                 $deployment->approval_token_hash = hash('sha256', $deployment->approval_token);
             }
         });
 
-        static::updating(function (Deployment $deployment) {
+        static::updating(function (DeployerDeployment $deployment) {
             // Update hash when token changes
-            if ($deployment->isDirty('approval_token') && !empty($deployment->approval_token)) {
+            if ($deployment->isDirty('approval_token') && ! empty($deployment->approval_token)) {
                 $deployment->approval_token_hash = hash('sha256', $deployment->approval_token);
             }
         });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Relationships
+    |--------------------------------------------------------------------------
+    */
+
+    public function releases(): HasMany
+    {
+        return $this->hasMany(DeployerRelease::class, 'deployment_id');
     }
 
     /*
@@ -88,12 +109,34 @@ class Deployment extends Model
 
     public function routeNotificationForTelegram(): ?string
     {
+        // First try app-specific notification
+        $appConfig = $this->getAppConfig();
+        if ($appConfig && $appConfig->getTelegramChatId()) {
+            return $appConfig->getTelegramChatId();
+        }
+
+        // Fall back to global config
         return config('continuous-delivery.notifications.telegram.chat_id');
     }
 
     public function routeNotificationForSlack(): ?string
     {
+        // First try app-specific notification
+        $appConfig = $this->getAppConfig();
+        if ($appConfig && $appConfig->getSlackWebhook()) {
+            return $appConfig->getSlackWebhook();
+        }
+
+        // Fall back to global config
         return config('continuous-delivery.notifications.slack.webhook_url');
+    }
+
+    /**
+     * Get the app configuration for this deployment.
+     */
+    public function getAppConfig(): ?AppConfig
+    {
+        return app(AppRegistry::class)->get($this->app_key);
     }
 
     /**
@@ -103,6 +146,7 @@ class Deployment extends Model
     {
         try {
             $this->notify($notification);
+
             return true;
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('[continuous-delivery] Failed to send notification', [
@@ -110,6 +154,7 @@ class Deployment extends Model
                 'notification' => get_class($notification),
                 'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -180,6 +225,16 @@ class Deployment extends Model
         ]);
     }
 
+    public function isSimpleStrategy(): bool
+    {
+        return $this->strategy === 'simple';
+    }
+
+    public function isAdvancedStrategy(): bool
+    {
+        return $this->strategy === 'advanced';
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Approval Workflow
@@ -188,7 +243,7 @@ class Deployment extends Model
 
     public function canBeApproved(): bool
     {
-        return $this->isPendingApproval() && !$this->hasExpired();
+        return $this->isPendingApproval() && ! $this->hasExpired();
     }
 
     public function canBeRejected(): bool
@@ -203,7 +258,7 @@ class Deployment extends Model
 
     public function approve(string $approvedBy): self
     {
-        if (!$this->canBeApproved()) {
+        if (! $this->canBeApproved()) {
             throw new \RuntimeException('Deployment cannot be approved');
         }
 
@@ -219,7 +274,7 @@ class Deployment extends Model
 
     public function reject(string $rejectedBy, ?string $reason = null): self
     {
-        if (!$this->canBeRejected()) {
+        if (! $this->canBeRejected()) {
             throw new \RuntimeException('Deployment cannot be rejected');
         }
 
@@ -235,7 +290,7 @@ class Deployment extends Model
 
     public function expire(): self
     {
-        if (!$this->isPendingApproval()) {
+        if (! $this->isPendingApproval()) {
             return $this;
         }
 
@@ -266,15 +321,21 @@ class Deployment extends Model
         return $this;
     }
 
-    public function markSuccess(string $output): self
+    public function markSuccess(string $output, ?string $releaseName = null): self
     {
-        $this->update([
+        $data = [
             'status' => self::STATUS_SUCCESS,
             'completed_at' => now(),
             'output' => $output,
             'exit_code' => 0,
             'duration_seconds' => $this->started_at?->diffInSeconds(now()),
-        ]);
+        ];
+
+        if ($releaseName) {
+            $data['release_name'] = $releaseName;
+        }
+
+        $this->update($data);
 
         return $this;
     }
@@ -327,7 +388,7 @@ class Deployment extends Model
     protected function durationForHumans(): Attribute
     {
         return Attribute::get(function () {
-            if (!$this->duration_seconds) {
+            if (! $this->duration_seconds) {
                 return null;
             }
 
@@ -345,7 +406,7 @@ class Deployment extends Model
     protected function timeUntilExpiry(): Attribute
     {
         return Attribute::get(function () {
-            if (!$this->approval_expires_at || $this->hasExpired()) {
+            if (! $this->approval_expires_at || $this->hasExpired()) {
                 return null;
             }
 
@@ -374,9 +435,14 @@ class Deployment extends Model
         ]);
     }
 
-    public function scopeForEnvironment($query, string $environment)
+    public function scopeForApp($query, string $appKey)
     {
-        return $query->where('environment', $environment);
+        return $query->where('app_key', $appKey);
+    }
+
+    public function scopeForTrigger($query, string $triggerName)
+    {
+        return $query->where('trigger_name', $triggerName);
     }
 
     public function scopeExpired($query)
@@ -390,6 +456,11 @@ class Deployment extends Model
         return $query->where('created_at', '>=', now()->subDays($days));
     }
 
+    public function scopeSuccessful($query)
+    {
+        return $query->where('status', self::STATUS_SUCCESS);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Factory Methods
@@ -397,26 +468,28 @@ class Deployment extends Model
     */
 
     public static function createFromWebhook(
-        string $environment,
+        AppConfig $app,
+        array $trigger,
         string $triggerType,
         string $triggerRef,
         array $payload,
-        bool $requiresApproval = false,
-        int $approvalTimeoutHours = 2
     ): self {
-        $config = config("continuous-delivery.environments.{$environment}");
+        $requiresApproval = $app->requiresApproval($trigger);
         $approvalToken = $requiresApproval ? Str::random(64) : null;
+        $approvalTimeoutHours = $app->getApprovalTimeout($trigger);
 
         return self::create([
-            'environment' => $environment,
+            'app_key' => $app->key,
+            'app_name' => $app->name,
+            'trigger_name' => $trigger['name'],
             'trigger_type' => $triggerType,
             'trigger_ref' => $triggerRef,
-            'commit_sha' => $payload['after'] ?? $payload['release']['target_commitish'] ?? 'unknown',
+            'repository' => $payload['repository']['full_name'] ?? $app->repository,
+            'commit_sha' => self::extractCommitSha($payload, $triggerType),
             'commit_message' => $payload['head_commit']['message'] ?? $payload['release']['body'] ?? null,
             'author' => $payload['sender']['login'] ?? 'unknown',
-            'repository' => $payload['repository']['full_name'] ?? null,
-            'mode' => request('mode', 'simple'),
-            'envoy_story' => $config['envoy_story'] ?? $environment,
+            'strategy' => $app->strategy,
+            'envoy_story' => $app->getEnvoyStory($trigger),
             'status' => $requiresApproval ? self::STATUS_PENDING_APPROVAL : self::STATUS_QUEUED,
             'approval_token' => $approvalToken,
             'approval_token_hash' => $approvalToken ? hash('sha256', $approvalToken) : null,
@@ -424,6 +497,64 @@ class Deployment extends Model
             'queued_at' => $requiresApproval ? null : now(),
             'payload' => $payload,
         ]);
+    }
+
+    public static function createManual(
+        AppConfig $app,
+        array $trigger,
+        string $ref,
+        ?string $commitSha = null,
+    ): self {
+        return self::create([
+            'app_key' => $app->key,
+            'app_name' => $app->name,
+            'trigger_name' => $trigger['name'],
+            'trigger_type' => 'manual',
+            'trigger_ref' => $ref,
+            'repository' => $app->repository,
+            'commit_sha' => $commitSha ?? 'HEAD',
+            'author' => 'manual',
+            'strategy' => $app->strategy,
+            'envoy_story' => $app->getEnvoyStory($trigger),
+            'status' => self::STATUS_QUEUED,
+            'queued_at' => now(),
+        ]);
+    }
+
+    public static function createRollback(
+        AppConfig $app,
+        string $targetRelease,
+        ?string $commitSha = null,
+    ): self {
+        $story = $app->isAdvanced() ? 'advanced-rollback' : 'rollback';
+
+        return self::create([
+            'app_key' => $app->key,
+            'app_name' => $app->name,
+            'trigger_name' => 'rollback',
+            'trigger_type' => 'rollback',
+            'trigger_ref' => $targetRelease,
+            'repository' => $app->repository,
+            'commit_sha' => $commitSha ?? 'rollback',
+            'author' => 'rollback',
+            'strategy' => $app->strategy,
+            'envoy_story' => $story,
+            'status' => self::STATUS_QUEUED,
+            'queued_at' => now(),
+        ]);
+    }
+
+    protected static function extractCommitSha(array $payload, string $triggerType): string
+    {
+        if ($triggerType === 'push') {
+            return $payload['after'] ?? $payload['head_commit']['id'] ?? 'unknown';
+        }
+
+        if ($triggerType === 'release') {
+            return $payload['release']['target_commitish'] ?? 'unknown';
+        }
+
+        return 'unknown';
     }
 
     /**
@@ -444,7 +575,7 @@ class Deployment extends Model
             return $deployment;
         }
 
-        // Fallback to direct token lookup for legacy records (pre-migration)
+        // Fallback to direct token lookup for legacy records
         return static::where('approval_token', $token)->first();
     }
 }

@@ -3,69 +3,121 @@
 namespace SageGrids\ContinuousDelivery\Console;
 
 use Illuminate\Console\Command;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Config\AppRegistry;
+use SageGrids\ContinuousDelivery\Deployers\AdvancedDeployer;
+use SageGrids\ContinuousDelivery\Deployers\DeployerFactory;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 class CleanupCommand extends Command
 {
-    protected $signature = 'deploy:cleanup
-                            {--days=90 : Delete deployments older than this many days}
+    protected $signature = 'deployer:cleanup
+                            {--app= : Filter by app (or cleanup release directories)}
+                            {--days=90 : Delete deployment records older than this many days}
+                            {--releases : Also cleanup old release directories (advanced strategy)}
                             {--dry-run : Show what would be deleted without actually deleting}
                             {--force : Skip confirmation}';
 
-    protected $description = 'Clean up old completed deployment records';
+    protected $description = 'Clean up old deployment records and release directories';
 
-    public function handle(): int
+    public function handle(AppRegistry $registry, DeployerFactory $factory): int
     {
         $days = (int) $this->option('days');
         $dryRun = $this->option('dry-run');
+        $cleanupReleases = $this->option('releases');
+        $appKey = $this->option('app');
 
         $cutoff = now()->subDays($days);
 
-        // Find completed deployments older than cutoff
-        $query = Deployment::where('created_at', '<', $cutoff)
+        // Build query
+        $query = DeployerDeployment::where('created_at', '<', $cutoff)
             ->whereIn('status', [
-                Deployment::STATUS_SUCCESS,
-                Deployment::STATUS_FAILED,
-                Deployment::STATUS_REJECTED,
-                Deployment::STATUS_EXPIRED,
+                DeployerDeployment::STATUS_SUCCESS,
+                DeployerDeployment::STATUS_FAILED,
+                DeployerDeployment::STATUS_REJECTED,
+                DeployerDeployment::STATUS_EXPIRED,
             ]);
+
+        if ($appKey) {
+            $query->forApp($appKey);
+        }
 
         $count = $query->count();
 
-        if ($count === 0) {
+        if ($count === 0 && ! $cleanupReleases) {
             $this->info('No deployments to clean up.');
+
             return self::SUCCESS;
         }
 
-        $this->info("Found {$count} deployments older than {$days} days.");
+        if ($count > 0) {
+            $this->info("Found {$count} deployment records older than {$days} days.");
 
-        if ($dryRun) {
-            $this->table(
-                ['UUID', 'Environment', 'Status', 'Created'],
-                $query->limit(20)->get()->map(fn ($d) => [
-                    substr($d->uuid, 0, 8) . '...',
-                    $d->environment,
-                    $d->status,
-                    $d->created_at->format('Y-m-d H:i'),
-                ])
-            );
+            if ($dryRun) {
+                $this->table(
+                    ['UUID', 'App', 'Status', 'Created'],
+                    $query->limit(20)->get()->map(fn ($d) => [
+                        substr($d->uuid, 0, 8).'...',
+                        $d->app_key,
+                        $d->status,
+                        $d->created_at->format('Y-m-d H:i'),
+                    ])
+                );
 
-            if ($count > 20) {
-                $this->info("... and " . ($count - 20) . " more.");
+                if ($count > 20) {
+                    $this->info('... and '.($count - 20).' more.');
+                }
             }
 
-            $this->info('Dry run complete. No records deleted.');
-            return self::SUCCESS;
+            if (! $dryRun && ($this->option('force') || $this->confirm("Delete {$count} deployment records?"))) {
+                $deleted = $query->delete();
+                $this->info("Deleted {$deleted} deployment records.");
+            }
         }
 
-        if (!$this->option('force') && !$this->confirm("Delete {$count} deployment records?")) {
-            $this->info('Cleanup cancelled.');
-            return self::SUCCESS;
+        // Cleanup release directories for advanced strategy apps
+        if ($cleanupReleases) {
+            $this->newLine();
+            $this->info('Cleaning up old release directories...');
+
+            $apps = $appKey
+                ? [$registry->get($appKey)]
+                : array_values($registry->all());
+
+            $totalCleaned = 0;
+
+            foreach ($apps as $app) {
+                if (! $app || ! $app->isAdvanced()) {
+                    continue;
+                }
+
+                $deployer = $factory->make($app);
+
+                if ($deployer instanceof AdvancedDeployer) {
+                    if ($dryRun) {
+                        $releases = $deployer->getAvailableReleases($app);
+                        $inactiveCount = collect($releases)->where('is_active', false)->count();
+                        $keepReleases = $app->getKeepReleases();
+                        $toDelete = max(0, $inactiveCount - $keepReleases + 1);
+                        $this->line("  {$app->name}: Would delete {$toDelete} old release(s)");
+                    } else {
+                        $cleaned = $deployer->cleanupOldReleases($app);
+                        $totalCleaned += $cleaned;
+                        if ($cleaned > 0) {
+                            $this->line("  {$app->name}: Cleaned {$cleaned} old release(s)");
+                        }
+                    }
+                }
+            }
+
+            if (! $dryRun && $totalCleaned > 0) {
+                $this->info("Total: Cleaned {$totalCleaned} old release directories.");
+            }
         }
 
-        $deleted = $query->delete();
-
-        $this->info("Deleted {$deleted} deployment records.");
+        if ($dryRun) {
+            $this->newLine();
+            $this->info('Dry run complete. No records or files deleted.');
+        }
 
         return self::SUCCESS;
     }

@@ -2,12 +2,12 @@
 
 namespace SageGrids\ContinuousDelivery\Notifications\Concerns;
 
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 trait DeploymentNotification
 {
     public function __construct(
-        public Deployment $deployment
+        public DeployerDeployment $deployment
     ) {}
 
     /**
@@ -34,8 +34,9 @@ trait DeploymentNotification
     protected function getDeploymentSummary(): string
     {
         return sprintf(
-            '%s (%s)',
-            $this->deployment->environment,
+            '%s/%s (%s)',
+            $this->deployment->app_name,
+            $this->deployment->trigger_name,
             $this->deployment->short_commit_sha
         );
     }
@@ -46,8 +47,8 @@ trait DeploymentNotification
     protected function getDeploymentDetails(): array
     {
         return [
-            'Environment' => $this->deployment->environment,
-            'Trigger' => "{$this->deployment->trigger_type}:{$this->deployment->trigger_ref}",
+            'App' => $this->deployment->app_name,
+            'Trigger' => "{$this->deployment->trigger_name}:{$this->deployment->trigger_ref}",
             'Commit' => $this->deployment->short_commit_sha,
             'Author' => $this->deployment->author,
         ];
@@ -100,11 +101,11 @@ trait DeploymentNotification
                 'fields' => [
                     [
                         'type' => 'mrkdwn',
-                        'text' => "*Environment:*\n{$this->deployment->environment}",
+                        'text' => "*App:*\n{$this->deployment->app_name}",
                     ],
                     [
                         'type' => 'mrkdwn',
-                        'text' => "*Trigger:*\n{$this->deployment->trigger_type}:{$this->deployment->trigger_ref}",
+                        'text' => "*Trigger:*\n{$this->deployment->trigger_name}:{$this->deployment->trigger_ref}",
                     ],
                     [
                         'type' => 'mrkdwn',
@@ -209,13 +210,13 @@ trait DeploymentNotification
     protected function getNotificationColor(): string
     {
         return match ($this->deployment->status) {
-            Deployment::STATUS_SUCCESS => '#28a745',      // Green
-            Deployment::STATUS_FAILED => '#dc3545',       // Red
-            Deployment::STATUS_PENDING_APPROVAL => '#ffc107', // Yellow/Warning
-            Deployment::STATUS_REJECTED => '#6c757d',     // Gray
-            Deployment::STATUS_EXPIRED => '#6c757d',      // Gray
-            Deployment::STATUS_RUNNING => '#17a2b8',      // Info blue
-            default => '#007bff',                         // Primary blue
+            DeployerDeployment::STATUS_SUCCESS => '#28a745',      // Green
+            DeployerDeployment::STATUS_FAILED => '#dc3545',       // Red
+            DeployerDeployment::STATUS_PENDING_APPROVAL => '#ffc107', // Yellow/Warning
+            DeployerDeployment::STATUS_REJECTED => '#6c757d',     // Gray
+            DeployerDeployment::STATUS_EXPIRED => '#6c757d',      // Gray
+            DeployerDeployment::STATUS_RUNNING => '#17a2b8',      // Info blue
+            default => '#007bff',                                  // Primary blue
         };
     }
 }

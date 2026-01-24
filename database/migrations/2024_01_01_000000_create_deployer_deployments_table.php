@@ -11,9 +11,9 @@ return new class extends Migration
      */
     public function getConnection(): ?string
     {
-        $dbPath = config('continuous-delivery.storage.database');
+        $connection = config('continuous-delivery.database.connection');
 
-        return $dbPath ? 'continuous-delivery' : null;
+        return $connection === 'sqlite' ? 'continuous-delivery' : null;
     }
 
     /**
@@ -21,35 +21,41 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::connection($this->getConnection())->create('deployments', function (Blueprint $table) {
+        Schema::connection($this->getConnection())->create('deployer_deployments', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
 
-            // Environment & trigger info
-            $table->string('environment', 50);
-            $table->string('trigger_type', 50);
-            $table->string('trigger_ref', 255);
+            // App identification
+            $table->string('app_key', 50)->default('default');
+            $table->string('app_name');
+
+            // Trigger info
+            $table->string('trigger_name', 50);      // 'staging', 'production'
+            $table->string('trigger_type', 50);      // 'push', 'release', 'manual', 'rollback'
+            $table->string('trigger_ref');           // 'develop', 'v1.2.3', etc.
 
             // Git info
+            $table->string('repository')->nullable();
             $table->string('commit_sha', 40);
             $table->text('commit_message')->nullable();
-            $table->string('author', 255)->nullable();
-            $table->string('repository', 255)->nullable();
+            $table->string('author')->nullable();
 
-            // Deployment config
-            $table->string('mode', 50)->default('simple');
-            $table->string('envoy_story', 50)->default('default');
+            // Strategy info
+            $table->string('strategy', 20);          // 'simple' or 'advanced'
+            $table->string('release_name', 50)->nullable();  // For advanced: '20240115_120000_abc1234'
+            $table->string('release_path', 500)->nullable();
 
-            // Status workflow
-            $table->string('status', 50)->default('pending_approval');
+            // Status tracking
+            $table->string('status', 30);
+            $table->string('envoy_story', 50);
 
             // Approval workflow
             $table->string('approval_token', 64)->nullable()->index();
             $table->string('approval_token_hash', 64)->nullable()->index();
             $table->timestamp('approval_expires_at')->nullable();
-            $table->string('approved_by', 255)->nullable();
+            $table->string('approved_by')->nullable();
             $table->timestamp('approved_at')->nullable();
-            $table->string('rejected_by', 255)->nullable();
+            $table->string('rejected_by')->nullable();
             $table->timestamp('rejected_at')->nullable();
             $table->text('rejection_reason')->nullable();
 
@@ -68,8 +74,9 @@ return new class extends Migration
             $table->timestamps();
 
             // Indexes
-            $table->index(['environment', 'status']);
-            $table->index(['status', 'created_at']);
+            $table->index(['app_key', 'status']);
+            $table->index(['app_key', 'created_at']);
+            $table->index('status');
             $table->index('created_at');
         });
     }
@@ -79,6 +86,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::connection($this->getConnection())->dropIfExists('deployments');
+        Schema::connection($this->getConnection())->dropIfExists('deployer_deployments');
     }
 };

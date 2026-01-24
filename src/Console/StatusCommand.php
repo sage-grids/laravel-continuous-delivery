@@ -3,16 +3,17 @@
 namespace SageGrids\ContinuousDelivery\Console;
 
 use Illuminate\Console\Command;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 class StatusCommand extends Command
 {
-    protected $signature = 'deploy:status
+    protected $signature = 'deployer:status
                             {uuid? : The deployment UUID (optional, shows recent if omitted)}
-                            {--environment= : Filter by environment}
+                            {--app= : Filter by app}
+                            {--trigger= : Filter by trigger}
                             {--limit=10 : Number of deployments to show}';
 
-    protected $description = 'Show deployment status.';
+    protected $description = 'Show deployment status';
 
     public function handle(): int
     {
@@ -25,19 +26,20 @@ class StatusCommand extends Command
 
     protected function showSingle(string $uuid): int
     {
-        $deployment = Deployment::where('uuid', $uuid)->first();
+        $deployment = DeployerDeployment::where('uuid', $uuid)->first();
 
-        if (!$deployment) {
+        if (! $deployment) {
             $this->error("Deployment not found: {$uuid}");
+
             return self::FAILURE;
         }
 
         $statusColor = match ($deployment->status) {
-            Deployment::STATUS_SUCCESS => 'green',
-            Deployment::STATUS_FAILED => 'red',
-            Deployment::STATUS_RUNNING => 'yellow',
-            Deployment::STATUS_PENDING_APPROVAL => 'cyan',
-            Deployment::STATUS_REJECTED, Deployment::STATUS_EXPIRED => 'gray',
+            DeployerDeployment::STATUS_SUCCESS => 'green',
+            DeployerDeployment::STATUS_FAILED => 'red',
+            DeployerDeployment::STATUS_RUNNING => 'yellow',
+            DeployerDeployment::STATUS_PENDING_APPROVAL => 'cyan',
+            DeployerDeployment::STATUS_REJECTED, DeployerDeployment::STATUS_EXPIRED => 'gray',
             default => 'white',
         };
 
@@ -47,11 +49,13 @@ class StatusCommand extends Command
 
         $this->table([], [
             ['UUID', $deployment->uuid],
-            ['Environment', $deployment->environment],
-            ['Trigger', "{$deployment->trigger_type}:{$deployment->trigger_ref}"],
+            ['App', "{$deployment->app_key} ({$deployment->app_name})"],
+            ['Strategy', $deployment->strategy],
+            ['Trigger', "{$deployment->trigger_name}:{$deployment->trigger_ref}"],
             ['Commit', $deployment->commit_sha],
             ['Author', $deployment->author],
             ['Status', $deployment->status],
+            ['Release', $deployment->release_name ?? '-'],
             ['Created', $deployment->created_at->format('Y-m-d H:i:s')],
             ['Started', $deployment->started_at?->format('Y-m-d H:i:s') ?? '-'],
             ['Completed', $deployment->completed_at?->format('Y-m-d H:i:s') ?? '-'],
@@ -62,8 +66,8 @@ class StatusCommand extends Command
         if ($deployment->isPendingApproval()) {
             $this->newLine();
             $this->line('Awaiting approval:');
-            $this->line("  Approve: php artisan deploy:approve {$deployment->uuid}");
-            $this->line("  Reject:  php artisan deploy:reject {$deployment->uuid}");
+            $this->line("  Approve: php artisan deployer:approve {$deployment->uuid}");
+            $this->line("  Reject:  php artisan deployer:reject {$deployment->uuid}");
             $this->line("  Web URL: {$deployment->getApproveUrl()}");
         }
 
@@ -78,27 +82,33 @@ class StatusCommand extends Command
 
     protected function showList(): int
     {
-        $query = Deployment::orderBy('created_at', 'desc')
+        $query = DeployerDeployment::orderBy('created_at', 'desc')
             ->limit($this->option('limit'));
 
-        if ($environment = $this->option('environment')) {
-            $query->forEnvironment($environment);
+        if ($app = $this->option('app')) {
+            $query->forApp($app);
+        }
+
+        if ($trigger = $this->option('trigger')) {
+            $query->forTrigger($trigger);
         }
 
         $deployments = $query->get();
 
         if ($deployments->isEmpty()) {
             $this->info('No deployments found.');
+
             return self::SUCCESS;
         }
 
         $this->table(
-            ['UUID', 'Environment', 'Status', 'Trigger', 'Author', 'Duration', 'Created'],
-            $deployments->map(fn (Deployment $d) => [
-                substr($d->uuid, 0, 8) . '...',
-                $d->environment,
+            ['UUID', 'App', 'Trigger', 'Status', 'Strategy', 'Author', 'Duration', 'Created'],
+            $deployments->map(fn (DeployerDeployment $d) => [
+                substr($d->uuid, 0, 8).'...',
+                $d->app_key,
+                "{$d->trigger_name}:{$d->trigger_ref}",
                 $this->formatStatus($d->status),
-                "{$d->trigger_type}:{$d->trigger_ref}",
+                $d->strategy,
                 $d->author,
                 $d->duration_for_humans ?? '-',
                 $d->created_at->diffForHumans(),
@@ -106,7 +116,7 @@ class StatusCommand extends Command
         );
 
         $this->newLine();
-        $this->line('View details: <comment>php artisan deploy:status {uuid}</comment>');
+        $this->line('View details: <comment>php artisan deployer:status {uuid}</comment>');
 
         return self::SUCCESS;
     }
@@ -114,14 +124,14 @@ class StatusCommand extends Command
     protected function formatStatus(string $status): string
     {
         return match ($status) {
-            Deployment::STATUS_SUCCESS => '<fg=green>success</>',
-            Deployment::STATUS_FAILED => '<fg=red>failed</>',
-            Deployment::STATUS_RUNNING => '<fg=yellow>running</>',
-            Deployment::STATUS_QUEUED => '<fg=yellow>queued</>',
-            Deployment::STATUS_PENDING_APPROVAL => '<fg=cyan>pending</>',
-            Deployment::STATUS_APPROVED => '<fg=green>approved</>',
-            Deployment::STATUS_REJECTED => '<fg=gray>rejected</>',
-            Deployment::STATUS_EXPIRED => '<fg=gray>expired</>',
+            DeployerDeployment::STATUS_SUCCESS => '<fg=green>success</>',
+            DeployerDeployment::STATUS_FAILED => '<fg=red>failed</>',
+            DeployerDeployment::STATUS_RUNNING => '<fg=yellow>running</>',
+            DeployerDeployment::STATUS_QUEUED => '<fg=yellow>queued</>',
+            DeployerDeployment::STATUS_PENDING_APPROVAL => '<fg=cyan>pending</>',
+            DeployerDeployment::STATUS_APPROVED => '<fg=green>approved</>',
+            DeployerDeployment::STATUS_REJECTED => '<fg=gray>rejected</>',
+            DeployerDeployment::STATUS_EXPIRED => '<fg=gray>expired</>',
             default => $status,
         };
     }

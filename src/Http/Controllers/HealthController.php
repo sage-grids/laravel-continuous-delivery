@@ -5,14 +5,15 @@ namespace SageGrids\ContinuousDelivery\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Config\AppRegistry;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 class HealthController extends Controller
 {
     /**
      * Perform health check.
      */
-    public function check(): JsonResponse
+    public function check(AppRegistry $registry): JsonResponse
     {
         $health = [
             'status' => 'healthy',
@@ -26,8 +27,8 @@ class HealthController extends Controller
         // Envoy binary check
         $health['checks']['envoy'] = $this->checkEnvoy();
 
-        // App directory check
-        $health['checks']['app_dir'] = $this->checkAppDir();
+        // Apps check
+        $health['checks']['apps'] = $this->checkApps($registry);
 
         // Deployment stats
         $health['stats'] = $this->getDeploymentStats();
@@ -49,10 +50,10 @@ class HealthController extends Controller
     protected function checkDatabase(): array
     {
         try {
-            $connection = Deployment::getDeploymentConnection();
+            $connection = DeployerDeployment::getDeploymentConnection();
             DB::connection($connection)->getPdo();
 
-            $deploymentCount = Deployment::count();
+            $deploymentCount = DeployerDeployment::count();
 
             return [
                 'status' => 'healthy',
@@ -98,39 +99,43 @@ class HealthController extends Controller
     }
 
     /**
-     * Check app directory configuration.
+     * Check apps configuration.
      */
-    protected function checkAppDir(): array
+    protected function checkApps(AppRegistry $registry): array
     {
-        $appDir = config('continuous-delivery.app_dir');
+        $apps = $registry->all();
 
-        if (!$appDir) {
+        if (empty($apps)) {
             return [
-                'status' => 'healthy',
-                'message' => 'Not configured (optional)',
+                'status' => 'unhealthy',
+                'error' => 'No apps configured',
             ];
         }
 
-        if (!is_dir($appDir)) {
-            return [
-                'status' => 'unhealthy',
-                'error' => 'Directory does not exist',
-                'path' => $appDir,
-            ];
-        }
+        $appStatuses = [];
+        $hasIssues = false;
 
-        if (!is_writable($appDir)) {
-            return [
-                'status' => 'unhealthy',
-                'error' => 'Directory is not writable',
-                'path' => $appDir,
-            ];
+        foreach ($apps as $key => $app) {
+            $status = ['status' => 'healthy'];
+
+            // Check if path exists
+            if (! is_dir($app->path)) {
+                $status['status'] = 'unhealthy';
+                $status['error'] = 'Path does not exist';
+                $hasIssues = true;
+            } else {
+                $status['path'] = $app->path;
+                $status['strategy'] = $app->strategy;
+                $status['triggers'] = count($app->triggers);
+            }
+
+            $appStatuses[$key] = $status;
         }
 
         return [
-            'status' => 'healthy',
-            'path' => $appDir,
-            'writable' => true,
+            'status' => $hasIssues ? 'unhealthy' : 'healthy',
+            'count' => count($apps),
+            'apps' => $appStatuses,
         ];
     }
 
@@ -142,20 +147,20 @@ class HealthController extends Controller
         $now = now();
 
         return [
-            'total' => Deployment::count(),
-            'last_24h' => Deployment::where('created_at', '>=', $now->copy()->subDay())->count(),
-            'last_7d' => Deployment::where('created_at', '>=', $now->copy()->subDays(7))->count(),
-            'pending_approval' => Deployment::pending()->count(),
-            'active' => Deployment::active()->count(),
-            'by_status' => Deployment::query()
+            'total' => DeployerDeployment::count(),
+            'last_24h' => DeployerDeployment::where('created_at', '>=', $now->copy()->subDay())->count(),
+            'last_7d' => DeployerDeployment::where('created_at', '>=', $now->copy()->subDays(7))->count(),
+            'pending_approval' => DeployerDeployment::pending()->count(),
+            'active' => DeployerDeployment::active()->count(),
+            'by_status' => DeployerDeployment::query()
                 ->selectRaw('status, count(*) as count')
                 ->groupBy('status')
                 ->pluck('count', 'status')
                 ->toArray(),
-            'by_environment' => Deployment::query()
-                ->selectRaw('environment, count(*) as count')
-                ->groupBy('environment')
-                ->pluck('count', 'environment')
+            'by_app' => DeployerDeployment::query()
+                ->selectRaw('app_key, count(*) as count')
+                ->groupBy('app_key')
+                ->pluck('count', 'app_key')
                 ->toArray(),
         ];
     }

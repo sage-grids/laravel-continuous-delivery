@@ -4,30 +4,32 @@ namespace SageGrids\ContinuousDelivery\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentRejected;
 
 class RejectCommand extends Command
 {
-    protected $signature = 'deploy:reject
+    protected $signature = 'deployer:reject
                             {uuid : The deployment UUID}
                             {--reason= : Reason for rejection}
                             {--force : Skip confirmation prompt}';
 
-    protected $description = 'Reject a pending deployment.';
+    protected $description = 'Reject a pending deployment';
 
     public function handle(): int
     {
         $uuid = $this->argument('uuid');
-        $deployment = Deployment::where('uuid', $uuid)->first();
+        $deployment = DeployerDeployment::where('uuid', $uuid)->first();
 
-        if (!$deployment) {
+        if (! $deployment) {
             $this->error("Deployment not found: {$uuid}");
+
             return self::FAILURE;
         }
 
-        if (!$deployment->canBeRejected()) {
+        if (! $deployment->canBeRejected()) {
             $this->error("Deployment cannot be rejected. Status: {$deployment->status}");
+
             return self::FAILURE;
         }
 
@@ -35,15 +37,17 @@ class RejectCommand extends Command
         $this->info('Deployment Details:');
         $this->table([], [
             ['UUID', $deployment->uuid],
-            ['Environment', $deployment->environment],
-            ['Trigger', "{$deployment->trigger_type}:{$deployment->trigger_ref}"],
+            ['App', "{$deployment->app_key} ({$deployment->app_name})"],
+            ['Strategy', $deployment->strategy],
+            ['Trigger', "{$deployment->trigger_name}:{$deployment->trigger_ref}"],
             ['Commit', $deployment->short_commit_sha],
             ['Author', $deployment->author],
             ['Created', $deployment->created_at->format('Y-m-d H:i:s')],
         ]);
 
-        if (!$this->option('force') && !$this->confirm('Reject this deployment?')) {
+        if (! $this->option('force') && ! $this->confirm('Reject this deployment?')) {
             $this->line('Cancelled.');
+
             return self::SUCCESS;
         }
 
@@ -59,7 +63,7 @@ class RejectCommand extends Command
                 'reason' => $reason,
             ]);
 
-            $this->info("Deployment rejected.");
+            $this->info('Deployment rejected.');
 
             // Send notification
             $this->notifyRejected($deployment);
@@ -68,11 +72,12 @@ class RejectCommand extends Command
 
         } catch (\Throwable $e) {
             $this->error("Failed to reject: {$e->getMessage()}");
+
             return self::FAILURE;
         }
     }
 
-    protected function notifyRejected(Deployment $deployment): void
+    protected function notifyRejected(DeployerDeployment $deployment): void
     {
         try {
             $deployment->notify(new DeploymentRejected($deployment));

@@ -3,13 +3,12 @@
 namespace SageGrids\ContinuousDelivery\Console;
 
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schema;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 class InstallCommand extends Command
 {
-    protected $signature = 'deploy:install
+    protected $signature = 'deployer:install
                             {--all : Publish everything}
                             {--config : Publish the config file only}
                             {--envoy : Publish the Envoy template only}
@@ -26,7 +25,7 @@ class InstallCommand extends Command
         $anyOption = $this->option('config') || $this->option('envoy') || $this->option('views');
 
         // If no options specified, default to --all
-        if (!$anyOption && !$all) {
+        if (! $anyOption && ! $all) {
             $all = true;
         }
 
@@ -62,25 +61,18 @@ class InstallCommand extends Command
         $this->info('Running migrations...');
 
         try {
-            $connection = Deployment::resolveConnection();
+            $connection = DeployerDeployment::getDeploymentConnection();
 
-            // Check if deployments table already exists
-            if (Schema::connection($connection)->hasTable('deployments')) {
+            // Check if deployer_deployments table already exists
+            if (Schema::connection($connection)->hasTable('deployer_deployments')) {
                 $this->line('  <fg=yellow>!</> Deployments table already exists, checking for updates...');
-
-                // Check for missing columns and run migrations if needed
-                if (!Schema::connection($connection)->hasColumn('deployments', 'approval_token_hash')) {
-                    $this->callSilent('deploy:migrate', ['--force' => true]);
-                    $this->line('  <fg=green>✓</> Applied pending migrations');
-                } else {
-                    $this->line('  <fg=green>✓</> Database is up to date');
-                }
+                $this->line('  <fg=green>✓</> Database is up to date');
             } else {
-                $this->callSilent('deploy:migrate', ['--force' => true]);
+                $this->callSilent('deployer:migrate', ['--force' => true]);
                 $this->line('  <fg=green>✓</> Migrations completed');
             }
         } catch (\Throwable $e) {
-            $this->warn('  <fg=yellow>!</> Migrations skipped: ' . $e->getMessage());
+            $this->warn('  <fg=yellow>!</> Migrations skipped: '.$e->getMessage());
             $this->line('     Run migrations manually if needed');
         }
 
@@ -94,15 +86,12 @@ class InstallCommand extends Command
         $this->line('   <fg=gray># Required</>');
         $this->line('   GITHUB_WEBHOOK_SECRET=<your-github-webhook-secret>');
         $this->newLine();
-        $this->line('   <fg=gray># Optional - restrict to specific repo</>');
-        $this->line('   CD_REPO_FULL_NAME=owner/repo');
-        $this->newLine();
         $this->line('   <fg=gray># Optional - Telegram notifications</>');
         $this->line('   CD_TELEGRAM_BOT_TOKEN=<bot-token>');
         $this->line('   CD_TELEGRAM_CHAT_ID=<chat-id>');
         $this->newLine();
 
-        $this->line('2. Configure your environments in <comment>config/continuous-delivery.php</comment>');
+        $this->line('2. Configure your apps in <comment>config/continuous-delivery.php</comment>');
         $this->newLine();
 
         $this->line('3. Customize <comment>Envoy.blade.php</comment> for your deployment workflow');
@@ -118,13 +107,16 @@ class InstallCommand extends Command
         $this->newLine();
 
         $this->info('CLI Commands:');
-        $this->line('   <comment>php artisan deploy:migrate</comment>     Run package migrations');
-        $this->line('   <comment>php artisan deploy:pending</comment>     List pending approvals');
-        $this->line('   <comment>php artisan deploy:approve</comment>     Approve a deployment');
-        $this->line('   <comment>php artisan deploy:reject</comment>      Reject a deployment');
-        $this->line('   <comment>php artisan deploy:status</comment>      View deployment status');
-        $this->line('   <comment>php artisan deploy:cleanup</comment>     Clean up old deployments');
-        $this->line('   <comment>php artisan deploy:rollback</comment>    Rollback to previous deployment');
+        $this->line('   <comment>php artisan deployer:apps</comment>       List configured apps');
+        $this->line('   <comment>php artisan deployer:trigger</comment>    Trigger a deployment');
+        $this->line('   <comment>php artisan deployer:setup</comment>      Setup app directories');
+        $this->line('   <comment>php artisan deployer:releases</comment>   List releases');
+        $this->line('   <comment>php artisan deployer:status</comment>     View deployment status');
+        $this->line('   <comment>php artisan deployer:pending</comment>    List pending approvals');
+        $this->line('   <comment>php artisan deployer:approve</comment>    Approve a deployment');
+        $this->line('   <comment>php artisan deployer:reject</comment>     Reject a deployment');
+        $this->line('   <comment>php artisan deployer:rollback</comment>   Rollback to previous release');
+        $this->line('   <comment>php artisan deployer:cleanup</comment>    Clean up old deployments');
         $this->newLine();
 
         return self::SUCCESS;

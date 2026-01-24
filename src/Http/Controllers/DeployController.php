@@ -7,30 +7,31 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use SageGrids\ContinuousDelivery\Config\AppConfig;
+use SageGrids\ContinuousDelivery\Config\AppRegistry;
 use SageGrids\ContinuousDelivery\Exceptions\DeploymentConflictException;
 use SageGrids\ContinuousDelivery\Jobs\RunDeployJob;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentApprovalRequired;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentStarted;
 use SageGrids\ContinuousDelivery\Support\Signature;
 
 class DeployController extends Controller
 {
+    public function __construct(
+        protected AppRegistry $registry
+    ) {}
+
     /**
      * Handle incoming GitHub webhook.
      */
     public function github(Request $request): JsonResponse
     {
         // Verify signature
-        if (!$this->verifySignature($request)) {
+        if (! $this->verifySignature($request)) {
             Log::warning('[continuous-delivery] Invalid webhook signature');
-            return response()->json(['error' => 'Invalid signature'], 403);
-        }
 
-        // Verify repository if configured
-        if (!$this->verifyRepository($request)) {
-            Log::info('[continuous-delivery] Repository mismatch, ignoring');
-            return response()->json(['message' => 'Repository not configured'], 200);
+            return response()->json(['error' => 'Invalid signature'], 403);
         }
 
         $event = $request->header('X-GitHub-Event');
@@ -41,138 +42,154 @@ class DeployController extends Controller
             'delivery_id' => $request->header('X-GitHub-Delivery'),
         ]);
 
-        return match ($event) {
-            'push' => $this->handlePush($payload),
-            'release' => $this->handleRelease($payload),
-            'ping' => response()->json(['message' => 'pong']),
-            default => response()->json(['message' => 'Event ignored'], 200),
-        };
+        if ($event === 'ping') {
+            return response()->json(['message' => 'pong']);
+        }
+
+        // Determine event type and ref
+        [$eventType, $ref] = $this->parseGithubEvent($event, $payload);
+
+        if (! $eventType) {
+            return response()->json(['message' => 'Event ignored'], 200);
+        }
+
+        // Get repository from payload
+        $repository = $payload['repository']['full_name'] ?? null;
+
+        // Find matching apps and triggers
+        $matches = $this->registry->findByTrigger($eventType, $ref, $repository);
+
+        if (empty($matches)) {
+            Log::info('[continuous-delivery] No matching triggers', [
+                'event' => $eventType,
+                'ref' => $ref,
+                'repository' => $repository,
+            ]);
+
+            return response()->json([
+                'message' => 'No matching triggers',
+                'event' => $eventType,
+                'ref' => $ref,
+            ], 200);
+        }
+
+        $deployments = [];
+
+        foreach ($matches as $match) {
+            $deployment = $this->createDeployment(
+                $match['app'],
+                $match['trigger'],
+                $eventType,
+                $ref,
+                $payload
+            );
+
+            if ($deployment) {
+                $deployments[] = [
+                    'uuid' => $deployment->uuid,
+                    'app' => $deployment->app_key,
+                    'status' => $deployment->status,
+                ];
+            }
+        }
+
+        return response()->json([
+            'message' => count($deployments).' deployment(s) created',
+            'deployments' => $deployments,
+        ], 202);
     }
 
     /**
-     * Handle push event (staging deployments).
+     * Parse GitHub event to determine type and ref.
      */
-    protected function handlePush(array $payload): JsonResponse
+    protected function parseGithubEvent(string $event, array $payload): array
     {
-        $ref = $payload['ref'] ?? '';
-        $branch = str_replace('refs/heads/', '', $ref);
+        if ($event === 'push') {
+            $ref = $payload['ref'] ?? '';
+            $branch = str_replace('refs/heads/', '', $ref);
 
-        $environment = $this->findEnvironmentForBranch($branch);
-
-        if (!$environment) {
-            Log::info('[continuous-delivery] No environment configured for branch', [
-                'branch' => $branch,
-            ]);
-            return response()->json(['message' => 'Branch not configured'], 200);
+            return ['push', $branch];
         }
 
-        return $this->createDeployment($environment, 'branch_push', $branch, $payload);
-    }
+        if ($event === 'release') {
+            $action = $payload['action'] ?? '';
+            if ($action !== 'published') {
+                return [null, null];
+            }
 
-    /**
-     * Handle release event (production deployments).
-     */
-    protected function handleRelease(array $payload): JsonResponse
-    {
-        $action = $payload['action'] ?? '';
+            $tag = $payload['release']['tag_name'] ?? '';
 
-        if ($action !== 'published') {
-            return response()->json(['message' => 'Release action ignored'], 200);
+            return ['release', $tag];
         }
 
-        $tag = $payload['release']['tag_name'] ?? '';
-        $environment = $this->findEnvironmentForTag($tag);
-
-        if (!$environment) {
-            Log::info('[continuous-delivery] No environment configured for tag', [
-                'tag' => $tag,
-            ]);
-            return response()->json(['message' => 'Tag pattern not matched'], 200);
-        }
-
-        return $this->createDeployment($environment, 'release', $tag, $payload);
+        return [null, null];
     }
 
     /**
      * Create a deployment record and dispatch job if applicable.
      */
     protected function createDeployment(
-        string $environment,
+        AppConfig $app,
+        array $trigger,
         string $triggerType,
         string $triggerRef,
         array $payload
-    ): JsonResponse {
-        $config = config("continuous-delivery.environments.{$environment}");
-        $requiresApproval = $config['approval_required'] ?? false;
-        $timeoutHours = $config['approval_timeout_hours'] ?? 2;
-
+    ): ?DeployerDeployment {
         try {
-            $deployment = DB::connection(Deployment::getDeploymentConnection())
-                ->transaction(function () use ($environment, $triggerType, $triggerRef, $payload, $requiresApproval, $timeoutHours) {
+            $deployment = DB::connection(DeployerDeployment::getDeploymentConnection())
+                ->transaction(function () use ($app, $trigger, $triggerType, $triggerRef, $payload) {
                     // Check for active deployment with pessimistic locking
-                    $activeDeployment = Deployment::forEnvironment($environment)
+                    $activeDeployment = DeployerDeployment::forApp($app->key)
+                        ->forTrigger($trigger['name'])
                         ->active()
                         ->lockForUpdate()
                         ->first();
 
                     if ($activeDeployment) {
-                        throw new DeploymentConflictException($environment, $activeDeployment);
+                        throw new DeploymentConflictException($app->key, $activeDeployment);
                     }
 
-                    return Deployment::createFromWebhook(
-                        $environment,
+                    return DeployerDeployment::createFromWebhook(
+                        $app,
+                        $trigger,
                         $triggerType,
                         $triggerRef,
-                        $payload,
-                        $requiresApproval,
-                        $timeoutHours
+                        $payload
                     );
                 });
         } catch (DeploymentConflictException $e) {
             Log::warning('[continuous-delivery] Active deployment exists', [
-                'environment' => $e->environment,
+                'app' => $app->key,
+                'trigger' => $trigger['name'],
                 'active_uuid' => $e->getActiveDeploymentUuid(),
             ]);
 
-            return response()->json([
-                'error' => 'Active deployment in progress',
-                'active_deployment' => $e->getActiveDeploymentUuid(),
-            ], 409);
+            return null;
         }
 
         Log::info('[continuous-delivery] Deployment created', [
             'uuid' => $deployment->uuid,
-            'environment' => $environment,
-            'trigger' => "{$triggerType}:{$triggerRef}",
-            'requires_approval' => $requiresApproval,
+            'app' => $app->key,
+            'trigger' => $trigger['name'],
+            'strategy' => $app->strategy,
+            'requires_approval' => $app->requiresApproval($trigger),
         ]);
 
-        if ($requiresApproval) {
+        if ($app->requiresApproval($trigger)) {
             $this->notifyApprovalRequired($deployment);
 
-            return response()->json([
-                'message' => 'Deployment pending approval',
-                'deployment_id' => $deployment->uuid,
-                'status' => $deployment->status,
-                'approve_url' => $deployment->getApproveUrl(),
-                'reject_url' => $deployment->getRejectUrl(),
-                'expires_at' => $deployment->approval_expires_at->toIso8601String(),
-            ], 202);
+            return $deployment;
         }
 
         $this->dispatchDeployment($deployment);
 
-        return response()->json([
-            'message' => 'Deployment queued',
-            'deployment_id' => $deployment->uuid,
-            'status' => $deployment->status,
-        ], 202);
+        return $deployment;
     }
 
     /**
      * Dispatch deployment job.
      */
-    protected function dispatchDeployment(Deployment $deployment): void
+    protected function dispatchDeployment(DeployerDeployment $deployment): void
     {
         $this->notifyDeploymentStarted($deployment);
 
@@ -193,64 +210,19 @@ class DeployController extends Controller
     }
 
     /**
-     * Find environment configuration for a branch.
-     */
-    protected function findEnvironmentForBranch(string $branch): ?string
-    {
-        $environments = config('continuous-delivery.environments', []);
-
-        foreach ($environments as $name => $config) {
-            if (!($config['enabled'] ?? true)) {
-                continue;
-            }
-
-            if (($config['trigger'] ?? '') !== 'branch') {
-                continue;
-            }
-
-            if (($config['branch'] ?? '') === $branch) {
-                return $name;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Find environment configuration for a tag.
-     */
-    protected function findEnvironmentForTag(string $tag): ?string
-    {
-        $environments = config('continuous-delivery.environments', []);
-
-        foreach ($environments as $name => $config) {
-            if (!($config['enabled'] ?? true)) {
-                continue;
-            }
-
-            if (($config['trigger'] ?? '') !== 'release') {
-                continue;
-            }
-
-            $pattern = $config['tag_pattern'] ?? '/^v\d+\.\d+\.\d+$/';
-
-            if (preg_match($pattern, $tag)) {
-                return $name;
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * Verify GitHub webhook signature.
      */
     protected function verifySignature(Request $request): bool
     {
+        if (! config('continuous-delivery.github.verify_signature', true)) {
+            return true;
+        }
+
         $secret = config('continuous-delivery.github.webhook_secret');
 
         if (empty($secret)) {
             Log::warning('[continuous-delivery] No webhook secret configured');
+
             return false;
         }
 
@@ -261,26 +233,9 @@ class DeployController extends Controller
     }
 
     /**
-     * Verify repository matches configuration (if specified).
-     */
-    protected function verifyRepository(Request $request): bool
-    {
-        $configuredRepo = config('continuous-delivery.github.only_repo_full_name');
-
-        if (empty($configuredRepo)) {
-            return true;
-        }
-
-        $payload = $request->json()->all();
-        $requestRepo = $payload['repository']['full_name'] ?? '';
-
-        return $requestRepo === $configuredRepo;
-    }
-
-    /**
      * Send approval required notification.
      */
-    protected function notifyApprovalRequired(Deployment $deployment): void
+    protected function notifyApprovalRequired(DeployerDeployment $deployment): void
     {
         try {
             $deployment->notify(new DeploymentApprovalRequired($deployment));
@@ -295,7 +250,7 @@ class DeployController extends Controller
     /**
      * Send deployment started notification.
      */
-    protected function notifyDeploymentStarted(Deployment $deployment): void
+    protected function notifyDeploymentStarted(DeployerDeployment $deployment): void
     {
         try {
             $deployment->notify(new DeploymentStarted($deployment));
@@ -312,15 +267,18 @@ class DeployController extends Controller
      */
     public function status(string $uuid): JsonResponse
     {
-        $deployment = Deployment::where('uuid', $uuid)->firstOrFail();
+        $deployment = DeployerDeployment::where('uuid', $uuid)->firstOrFail();
 
         return response()->json([
             'uuid' => $deployment->uuid,
-            'environment' => $deployment->environment,
-            'trigger' => "{$deployment->trigger_type}:{$deployment->trigger_ref}",
+            'app' => $deployment->app_key,
+            'app_name' => $deployment->app_name,
+            'trigger' => "{$deployment->trigger_name}:{$deployment->trigger_ref}",
+            'strategy' => $deployment->strategy,
             'status' => $deployment->status,
             'commit' => $deployment->short_commit_sha,
             'author' => $deployment->author,
+            'release_name' => $deployment->release_name,
             'created_at' => $deployment->created_at->toIso8601String(),
             'started_at' => $deployment->started_at?->toIso8601String(),
             'completed_at' => $deployment->completed_at?->toIso8601String(),

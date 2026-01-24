@@ -1,165 +1,280 @@
-@servers(['localhost' => '127.0.0.1'])
-
 @setup
-    // Application directory (required)
-    $appDir = env('CD_APP_DIR');
-    if (empty($appDir)) {
-        throw new Exception('CD_APP_DIR environment variable is required');
-    }
+    // Configuration passed from PHP
+    $app = $app ?? 'default';
+    $strategy = $strategy ?? 'simple';
+    $path = $path ?? '/var/www/app';
+    $ref = $ref ?? 'main';
+    $php = $php ?? 'php';
+    $composer = $composer ?? 'composer';
 
-    // Git reference (branch or tag) - passed from CLI
-    $ref = $ref ?? env('CD_BRANCH', 'develop');
+    // Advanced mode settings
+    $releaseName = $releaseName ?? date('Ymd_His');
+    $releasesPath = $releasesPath ?? $path . '/releases';
+    $sharedPath = $sharedPath ?? $path . '/shared';
+    $currentLink = $currentLink ?? $path . '/current';
+    $releasePath = $releasesPath . '/' . $releaseName;
+    $keepReleases = $keepReleases ?? 5;
+    $repository = $repository ?? null;
 
-    // Notification settings (optional)
-    $telegramBot = env('CD_TELEGRAM_BOT_TOKEN');
-    $telegramChat = env('CD_TELEGRAM_CHAT_ID');
-    $slackWebhook = env('CD_SLACK_WEBHOOK');
-
-    // PHP binary path (for systems with multiple PHP versions)
-    $php = env('CD_PHP_PATH', 'php');
-
-    // Composer binary path
-    $composer = env('CD_COMPOSER_PATH', 'composer');
+    // Parse shared dirs and files from JSON
+    $sharedDirs = isset($sharedDirs) ? json_decode($sharedDirs, true) : ['storage'];
+    $sharedFiles = isset($sharedFiles) ? json_decode($sharedFiles, true) : ['.env'];
 @endsetup
 
-{{-- ============================================================
-     STAGING STORY
-     Fast incremental deploy for development/staging servers.
-     Triggered by: Push to develop branch
-     ============================================================ --}}
+@servers(['localhost' => '127.0.0.1'])
+
+{{-- ============================================= --}}
+{{-- SIMPLE STRATEGY STORIES                       --}}
+{{-- ============================================= --}}
+
 @story('staging')
-    pull-code
-    install-dependencies
-    cache-config
-    migrate
+    simple-pull
+    simple-install
+    simple-migrate
+    simple-cache
+    simple-restart-queue
 @endstory
 
-{{-- ============================================================
-     PRODUCTION STORY
-     Full clean deploy with vendor refresh for production servers.
-     Triggered by: Release tag (after approval)
-     ============================================================ --}}
 @story('production')
-    maintenance-on
-    pull-code
-    clean-vendor
-    install-dependencies
-    clear-cache
-    cache-config
-    migrate
-    storage-link
-    maintenance-off
+    simple-maintenance-on
+    simple-pull
+    simple-install
+    simple-clear-cache
+    simple-migrate
+    simple-cache
+    simple-restart-queue
+    simple-maintenance-off
 @endstory
 
-{{-- ============================================================
-     ROLLBACK STORY
-     Quick rollback to previous commit.
-     ============================================================ --}}
 @story('rollback')
-    maintenance-on
-    rollback-code
-    install-dependencies
-    cache-config
-    migrate-rollback
-    maintenance-off
+    simple-rollback
+    simple-cache
+    simple-restart-queue
 @endstory
 
-{{-- ============================================================
-     INDIVIDUAL TASKS
-     ============================================================ --}}
-
-@task('pull-code')
-    echo "==> Pulling code (ref: {{ $ref }})"
-    cd {{ $appDir }}
-    git fetch origin --tags --prune
+{{-- Simple Strategy Tasks --}}
+@task('simple-pull')
+    echo "=== Pulling latest code ==="
+    cd {{ $path }}
+    git fetch origin --prune
     git checkout {{ $ref }}
-    git reset --hard {{ $ref }}
-    echo "==> Current commit: $(git rev-parse --short HEAD)"
+    git pull origin {{ $ref }} || git reset --hard origin/{{ $ref }}
+    echo "Now at: $(git rev-parse --short HEAD)"
 @endtask
 
-@task('rollback-code')
-    echo "==> Rolling back to previous commit"
-    cd {{ $appDir }}
-    git checkout HEAD~1
-    echo "==> Rolled back to: $(git rev-parse --short HEAD)"
+@task('simple-install')
+    echo "=== Installing dependencies ==="
+    cd {{ $path }}
+    {{ $composer }} install --no-dev --optimize-autoloader --no-interaction
 @endtask
 
-@task('clean-vendor')
-    echo "==> Cleaning vendor directory and caches"
-    cd {{ $appDir }}
-    rm -rf vendor
-    rm -rf bootstrap/cache/*.php
-@endtask
-
-@task('install-dependencies')
-    echo "==> Installing dependencies"
-    cd {{ $appDir }}
-    {{ $composer }} install --no-dev --optimize-autoloader --no-interaction --prefer-dist
-@endtask
-
-@task('clear-cache')
-    echo "==> Clearing all caches"
-    cd {{ $appDir }}
-    {{ $php }} artisan optimize:clear
-@endtask
-
-@task('cache-config')
-    echo "==> Caching configuration"
-    cd {{ $appDir }}
-    {{ $php }} artisan config:cache
-    {{ $php }} artisan route:cache
-    {{ $php }} artisan view:cache
-    {{ $php }} artisan event:cache || true
-@endtask
-
-@task('migrate')
-    echo "==> Running migrations"
-    cd {{ $appDir }}
+@task('simple-migrate')
+    echo "=== Running migrations ==="
+    cd {{ $path }}
     {{ $php }} artisan migrate --force
 @endtask
 
-@task('migrate-rollback')
-    echo "==> Rolling back last migration batch"
-    cd {{ $appDir }}
-    {{ $php }} artisan migrate:rollback --force
+@task('simple-cache')
+    echo "=== Caching configuration ==="
+    cd {{ $path }}
+    {{ $php }} artisan config:cache
+    {{ $php }} artisan route:cache
+    {{ $php }} artisan view:cache
 @endtask
 
-@task('storage-link')
-    echo "==> Creating storage symlink"
-    cd {{ $appDir }}
-    {{ $php }} artisan storage:link || true
+@task('simple-clear-cache')
+    echo "=== Clearing caches ==="
+    cd {{ $path }}
+    {{ $php }} artisan cache:clear
+    {{ $php }} artisan config:clear
+    {{ $php }} artisan route:clear
+    {{ $php }} artisan view:clear
 @endtask
 
-@task('maintenance-on')
-    echo "==> Enabling maintenance mode"
-    cd {{ $appDir }}
+@task('simple-maintenance-on')
+    echo "=== Enabling maintenance mode ==="
+    cd {{ $path }}
     {{ $php }} artisan down --retry=60 || true
 @endtask
 
-@task('maintenance-off')
-    echo "==> Disabling maintenance mode"
-    cd {{ $appDir }}
+@task('simple-maintenance-off')
+    echo "=== Disabling maintenance mode ==="
+    cd {{ $path }}
     {{ $php }} artisan up
 @endtask
 
-@task('queue-restart')
-    echo "==> Restarting queue workers"
-    cd {{ $appDir }}
+@task('simple-restart-queue')
+    echo "=== Restarting queue workers ==="
+    cd {{ $path }}
     {{ $php }} artisan queue:restart
 @endtask
 
-{{-- ============================================================
-     LIFECYCLE HOOKS
-     ============================================================ --}}
+@task('simple-rollback')
+    echo "=== Rolling back to previous commit ==="
+    cd {{ $path }}
+    git checkout HEAD~1
+    echo "Rolled back to: $(git rev-parse --short HEAD)"
+@endtask
 
-@finished
-    @if ($telegramBot && $telegramChat)
-        @telegram($telegramBot, $telegramChat)
-    @endif
-@endfinished
+{{-- ============================================= --}}
+{{-- ADVANCED STRATEGY STORIES                     --}}
+{{-- ============================================= --}}
 
-@error
-    @if ($slackWebhook)
-        @slack($slackWebhook, '#alerts', 'Deployment FAILED!')
+@story('advanced-staging')
+    advanced-prepare
+    advanced-clone
+    advanced-link-shared
+    advanced-install
+    advanced-migrate
+    advanced-cache
+    advanced-activate
+    advanced-restart-queue
+    advanced-cleanup
+@endstory
+
+@story('advanced-production')
+    advanced-prepare
+    advanced-clone
+    advanced-link-shared
+    advanced-install
+    advanced-clear-cache
+    advanced-migrate
+    advanced-cache
+    advanced-public-storage
+    advanced-activate
+    advanced-restart-queue
+    advanced-cleanup
+@endstory
+
+@story('advanced-rollback')
+    advanced-rollback-activate
+    advanced-restart-queue
+@endstory
+
+{{-- Advanced Strategy Tasks --}}
+@task('advanced-prepare')
+    echo "=== Preparing release: {{ $releaseName }} ==="
+    mkdir -p {{ $releasePath }}
+    mkdir -p {{ $sharedPath }}/storage/{app/public,framework/{cache,sessions,views},logs}
+
+    # Ensure shared .env exists
+    if [ ! -f "{{ $sharedPath }}/.env" ]; then
+        echo "WARNING: No .env in shared path. Please create {{ $sharedPath }}/.env"
+    fi
+@endtask
+
+@task('advanced-clone')
+    echo "=== Cloning code to release folder ==="
+    @if($repository)
+        git clone --depth 1 --branch {{ $ref }} {{ $repository }} {{ $releasePath }}
+    @else
+        # Copy from current (for same-server deployments)
+        if [ -L "{{ $currentLink }}" ]; then
+            rsync -a --exclude='.git' --exclude='storage' --exclude='.env' \
+                $(readlink -f {{ $currentLink }})/ {{ $releasePath }}/
+            cd {{ $releasePath }}
+            git fetch origin --prune
+            git checkout {{ $ref }}
+            git reset --hard {{ $ref }}
+        else
+            echo "ERROR: No current release and no repository configured"
+            exit 1
+        fi
     @endif
-@enderror
+    echo "Cloned to: {{ $releasePath }}"
+@endtask
+
+@task('advanced-link-shared')
+    echo "=== Linking shared directories and files ==="
+
+    # Link shared directories
+    @foreach($sharedDirs as $dir)
+        rm -rf {{ $releasePath }}/{{ $dir }}
+        ln -sfn {{ $sharedPath }}/{{ $dir }} {{ $releasePath }}/{{ $dir }}
+        echo "Linked: {{ $dir }} -> shared/{{ $dir }}"
+    @endforeach
+
+    # Link shared files
+    @foreach($sharedFiles as $file)
+        rm -f {{ $releasePath }}/{{ $file }}
+        ln -sfn {{ $sharedPath }}/{{ $file }} {{ $releasePath }}/{{ $file }}
+        echo "Linked: {{ $file }} -> shared/{{ $file }}"
+    @endforeach
+@endtask
+
+@task('advanced-install')
+    echo "=== Installing dependencies ==="
+    cd {{ $releasePath }}
+    {{ $composer }} install --no-dev --optimize-autoloader --no-interaction
+@endtask
+
+@task('advanced-migrate')
+    echo "=== Running migrations ==="
+    cd {{ $releasePath }}
+    {{ $php }} artisan migrate --force
+@endtask
+
+@task('advanced-cache')
+    echo "=== Caching configuration ==="
+    cd {{ $releasePath }}
+    {{ $php }} artisan config:cache
+    {{ $php }} artisan route:cache
+    {{ $php }} artisan view:cache
+@endtask
+
+@task('advanced-clear-cache')
+    echo "=== Clearing caches ==="
+    cd {{ $releasePath }}
+    {{ $php }} artisan cache:clear
+    {{ $php }} artisan config:clear
+    {{ $php }} artisan route:clear
+    {{ $php }} artisan view:clear
+@endtask
+
+@task('advanced-public-storage')
+    echo "=== Creating public storage symlink ==="
+    cd {{ $releasePath }}
+    rm -f public/storage
+    ln -sfn {{ $sharedPath }}/storage/app/public {{ $releasePath }}/public/storage
+@endtask
+
+@task('advanced-activate')
+    echo "=== Activating release ==="
+
+    # Atomic symlink switch (two-step for atomicity)
+    ln -sfn {{ $releasePath }} {{ $currentLink }}.new
+    mv -Tf {{ $currentLink }}.new {{ $currentLink }}
+
+    echo "Active release: $(readlink {{ $currentLink }})"
+@endtask
+
+@task('advanced-restart-queue')
+    echo "=== Restarting queue workers ==="
+    cd {{ $currentLink }}
+    {{ $php }} artisan queue:restart
+@endtask
+
+@task('advanced-cleanup')
+    echo "=== Cleaning up old releases (keeping {{ $keepReleases }}) ==="
+    cd {{ $releasesPath }}
+    ls -1dt */ | tail -n +{{ $keepReleases + 1 }} | xargs -r rm -rf
+    echo "Remaining releases:"
+    ls -1dt */
+@endtask
+
+@task('advanced-rollback-activate')
+    echo "=== Rolling back to previous release ==="
+    cd {{ $releasesPath }}
+    PREVIOUS=$(ls -1dt */ | sed -n '2p' | tr -d '/')
+
+    if [ -z "$PREVIOUS" ]; then
+        echo "ERROR: No previous release found"
+        exit 1
+    fi
+
+    echo "Rolling back to: $PREVIOUS"
+    ln -sfn {{ $releasesPath }}/$PREVIOUS {{ $currentLink }}.new
+    mv -Tf {{ $currentLink }}.new {{ $currentLink }}
+
+    echo "Active release: $(readlink {{ $currentLink }})"
+@endtask

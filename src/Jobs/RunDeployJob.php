@@ -8,8 +8,11 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
+use SageGrids\ContinuousDelivery\Config\AppConfig;
+use SageGrids\ContinuousDelivery\Config\AppRegistry;
+use SageGrids\ContinuousDelivery\Deployers\DeployerFactory;
 use SageGrids\ContinuousDelivery\Exceptions\DeploymentException;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentFailed;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentSucceeded;
 
@@ -28,23 +31,35 @@ class RunDeployJob implements ShouldQueue
     public int $timeout = 1800;
 
     public function __construct(
-        public Deployment $deployment
+        public DeployerDeployment $deployment
     ) {}
 
-    public function handle(): void
+    public function handle(AppRegistry $registry, DeployerFactory $factory): void
     {
         $startTime = microtime(true);
 
         Log::info('[continuous-delivery] Job started', [
             'uuid' => $this->deployment->uuid,
-            'environment' => $this->deployment->environment,
+            'app' => $this->deployment->app_key,
+            'strategy' => $this->deployment->strategy,
             'story' => $this->deployment->envoy_story,
             'ref' => $this->deployment->trigger_ref,
             'attempt' => $this->attempts(),
         ]);
 
+        // Get app configuration
+        $app = $registry->get($this->deployment->app_key);
+        if (! $app) {
+            $error = "App configuration not found: {$this->deployment->app_key}";
+            Log::error('[continuous-delivery] '.$error);
+            $this->deployment->markFailed($error, 1);
+            $this->notifyFailure();
+
+            return;
+        }
+
         try {
-            $this->validatePrerequisites();
+            $this->validatePrerequisites($app);
         } catch (DeploymentException $e) {
             Log::error('[continuous-delivery] Prerequisite validation failed', [
                 'uuid' => $this->deployment->uuid,
@@ -64,18 +79,35 @@ class RunDeployJob implements ShouldQueue
         ]);
 
         try {
-            $output = $this->runEnvoy();
+            // Get the appropriate deployer strategy
+            $deployer = $factory->make($app);
 
-            $this->deployment->markSuccess($output);
+            // Run deployment
+            $result = $deployer->deploy($app, $this->deployment);
 
-            $duration = round(microtime(true) - $startTime, 2);
-            Log::info('[continuous-delivery] Job completed successfully', [
-                'uuid' => $this->deployment->uuid,
-                'duration_seconds' => $duration,
-                'duration_human' => $this->deployment->duration_for_humans,
-            ]);
+            if ($result->isSuccess()) {
+                $this->deployment->markSuccess($result->output, $result->releaseName);
 
-            $this->notifySuccess();
+                $duration = round(microtime(true) - $startTime, 2);
+                Log::info('[continuous-delivery] Job completed successfully', [
+                    'uuid' => $this->deployment->uuid,
+                    'duration_seconds' => $duration,
+                    'release_name' => $result->releaseName,
+                ]);
+
+                $this->notifySuccess();
+            } else {
+                $this->deployment->markFailed($result->output, $result->exitCode);
+
+                $duration = round(microtime(true) - $startTime, 2);
+                Log::error('[continuous-delivery] Job failed', [
+                    'uuid' => $this->deployment->uuid,
+                    'exit_code' => $result->exitCode,
+                    'duration_seconds' => $duration,
+                ]);
+
+                $this->notifyFailure();
+            }
 
         } catch (\Throwable $e) {
             $output = $e->getMessage();
@@ -84,7 +116,7 @@ class RunDeployJob implements ShouldQueue
             $this->deployment->markFailed($output, $exitCode);
 
             $duration = round(microtime(true) - $startTime, 2);
-            Log::error('[continuous-delivery] Job failed', [
+            Log::error('[continuous-delivery] Job failed with exception', [
                 'uuid' => $this->deployment->uuid,
                 'error' => $e->getMessage(),
                 'exit_code' => $exitCode,
@@ -100,7 +132,7 @@ class RunDeployJob implements ShouldQueue
     /**
      * Validate deployment prerequisites.
      */
-    protected function validatePrerequisites(): void
+    protected function validatePrerequisites(AppConfig $app): void
     {
         // Check Envoy binary exists
         try {
@@ -109,74 +141,29 @@ class RunDeployJob implements ShouldQueue
             throw DeploymentException::envoyNotFound();
         }
 
-        // Check app directory if configured
-        $appDir = config('continuous-delivery.app_dir');
-        if ($appDir) {
-            if (!is_dir($appDir)) {
-                throw DeploymentException::appDirDoesNotExist($appDir);
-            }
+        // Check app directory exists
+        if (! is_dir($app->path)) {
+            throw DeploymentException::appDirDoesNotExist($app->path);
+        }
 
-            if (!is_writable($appDir)) {
-                throw DeploymentException::appDirNotWritable($appDir);
+        // For advanced strategy, also check releases/shared paths
+        if ($app->isAdvanced()) {
+            $releasesPath = dirname($app->getReleasesPath());
+            if (! is_dir($releasesPath) && ! is_writable(dirname($releasesPath))) {
+                throw DeploymentException::appDirNotWritable(dirname($releasesPath));
             }
         }
 
         // Check git is installed
         $result = Process::run('which git');
-        if (!$result->successful()) {
+        if (! $result->successful()) {
             throw DeploymentException::gitNotInstalled();
         }
 
         Log::debug('[continuous-delivery] Prerequisites validated', [
             'uuid' => $this->deployment->uuid,
+            'app' => $app->key,
         ]);
-    }
-
-    /**
-     * Run the Envoy deployment.
-     */
-    protected function runEnvoy(): string
-    {
-        $envoyPath = $this->getEnvoyPath();
-        $story = $this->deployment->envoy_story;
-        $ref = $this->deployment->trigger_ref;
-
-        // Build envoy command
-        $command = sprintf(
-            '%s run %s --ref=%s',
-            escapeshellarg($envoyPath),
-            escapeshellarg($story),
-            escapeshellarg($ref)
-        );
-
-        // Add custom envoy file path if configured
-        $envoyFile = config('continuous-delivery.envoy.path');
-        if ($envoyFile && file_exists($envoyFile)) {
-            $command = sprintf(
-                '%s run %s --ref=%s --path=%s',
-                escapeshellarg($envoyPath),
-                escapeshellarg($story),
-                escapeshellarg($ref),
-                escapeshellarg($envoyFile)
-            );
-        }
-
-        Log::debug('[continuous-delivery] Running Envoy command', [
-            'command' => $command,
-        ]);
-
-        $result = Process::timeout($this->timeout)->run($command);
-
-        $output = $result->output() . "\n" . $result->errorOutput();
-
-        if (!$result->successful()) {
-            throw new \RuntimeException(
-                "Envoy deployment failed:\n" . $output,
-                $result->exitCode()
-            );
-        }
-
-        return $output;
     }
 
     /**

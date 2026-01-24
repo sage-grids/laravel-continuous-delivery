@@ -4,21 +4,22 @@ namespace SageGrids\ContinuousDelivery\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentExpired;
 
 class ExpireCommand extends Command
 {
-    protected $signature = 'deploy:expire';
+    protected $signature = 'deployer:expire';
 
-    protected $description = 'Expire stale pending deployment approvals.';
+    protected $description = 'Expire stale pending deployment approvals';
 
     public function handle(): int
     {
-        $expired = Deployment::expired()->get();
+        $expired = DeployerDeployment::expired()->get();
 
         if ($expired->isEmpty()) {
             $this->info('No expired deployments to process.');
+
             return self::SUCCESS;
         }
 
@@ -30,7 +31,7 @@ class ExpireCommand extends Command
 
                 Log::info('[continuous-delivery] Deployment expired', [
                     'uuid' => $deployment->uuid,
-                    'environment' => $deployment->environment,
+                    'app' => $deployment->app_key,
                 ]);
 
                 $this->notifyExpired($deployment);
@@ -49,7 +50,7 @@ class ExpireCommand extends Command
         return self::SUCCESS;
     }
 
-    protected function notifyExpired(Deployment $deployment): void
+    protected function notifyExpired(DeployerDeployment $deployment): void
     {
         try {
             $deployment->notify(new DeploymentExpired($deployment));

@@ -8,8 +8,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use SageGrids\ContinuousDelivery\Config\AppRegistry;
 use SageGrids\ContinuousDelivery\Console\ApproveCommand;
 use SageGrids\ContinuousDelivery\Console\CleanupCommand;
+use SageGrids\ContinuousDelivery\Console\DeployerAppsCommand;
+use SageGrids\ContinuousDelivery\Console\DeployerReleasesCommand;
+use SageGrids\ContinuousDelivery\Console\DeployerSetupCommand;
+use SageGrids\ContinuousDelivery\Console\DeployerTriggerCommand;
 use SageGrids\ContinuousDelivery\Console\ExpireCommand;
 use SageGrids\ContinuousDelivery\Console\InstallCommand;
 use SageGrids\ContinuousDelivery\Console\MigrateCommand;
@@ -17,6 +22,7 @@ use SageGrids\ContinuousDelivery\Console\PendingCommand;
 use SageGrids\ContinuousDelivery\Console\RejectCommand;
 use SageGrids\ContinuousDelivery\Console\RollbackCommand;
 use SageGrids\ContinuousDelivery\Console\StatusCommand;
+use SageGrids\ContinuousDelivery\Deployers\DeployerFactory;
 
 class ContinuousDeliveryServiceProvider extends ServiceProvider
 {
@@ -26,11 +32,12 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(
-            __DIR__ . '/../config/continuous-delivery.php',
+            __DIR__.'/../config/continuous-delivery.php',
             'continuous-delivery'
         );
 
         $this->registerDatabaseConnection();
+        $this->registerServices();
     }
 
     /**
@@ -45,6 +52,22 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
         $this->registerCommands();
         $this->registerViews();
         $this->registerScheduler();
+    }
+
+    /**
+     * Register core services.
+     */
+    protected function registerServices(): void
+    {
+        // Register AppRegistry as singleton
+        $this->app->singleton(AppRegistry::class, function () {
+            return new AppRegistry;
+        });
+
+        // Register DeployerFactory as singleton
+        $this->app->singleton(DeployerFactory::class, function () {
+            return new DeployerFactory;
+        });
     }
 
     /**
@@ -63,20 +86,27 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
     protected function registerDatabaseConnection(): void
     {
         $this->app->booted(function () {
-            $dbPath = config('continuous-delivery.storage.database');
+            $connection = config('continuous-delivery.database.connection');
 
-            if (!$dbPath) {
+            // Only set up SQLite if using isolated storage
+            if ($connection !== 'sqlite') {
+                return;
+            }
+
+            $dbPath = config('continuous-delivery.database.sqlite_path');
+
+            if (! $dbPath) {
                 return;
             }
 
             // Ensure directory exists
             $dir = dirname($dbPath);
-            if (!is_dir($dir) && is_writable(dirname($dir))) {
+            if (! is_dir($dir) && is_writable(dirname($dir))) {
                 @mkdir($dir, 0755, true);
             }
 
             // Create empty database file if it doesn't exist
-            if (!file_exists($dbPath) && is_dir($dir) && is_writable($dir)) {
+            if (! file_exists($dbPath) && is_dir($dir) && is_writable($dir)) {
                 @touch($dbPath);
             }
 
@@ -95,29 +125,29 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
      */
     protected function registerPublishables(): void
     {
-        if (!$this->app->runningInConsole()) {
+        if (! $this->app->runningInConsole()) {
             return;
         }
 
         // Config
         $this->publishes([
-            __DIR__ . '/../config/continuous-delivery.php' => config_path('continuous-delivery.php'),
+            __DIR__.'/../config/continuous-delivery.php' => config_path('continuous-delivery.php'),
         ], 'continuous-delivery-config');
 
         // Envoy template
         $this->publishes([
-            __DIR__ . '/../resources/Envoy.blade.php' => base_path('Envoy.blade.php'),
+            __DIR__.'/../resources/Envoy.blade.php' => base_path('Envoy.blade.php'),
         ], 'continuous-delivery-envoy');
 
         // Views (for approval confirmation pages)
         $this->publishes([
-            __DIR__ . '/../resources/views' => resource_path('views/vendor/continuous-delivery'),
+            __DIR__.'/../resources/views' => resource_path('views/vendor/continuous-delivery'),
         ], 'continuous-delivery-views');
 
         // All publishables
         $this->publishes([
-            __DIR__ . '/../config/continuous-delivery.php' => config_path('continuous-delivery.php'),
-            __DIR__ . '/../resources/Envoy.blade.php' => base_path('Envoy.blade.php'),
+            __DIR__.'/../config/continuous-delivery.php' => config_path('continuous-delivery.php'),
+            __DIR__.'/../resources/Envoy.blade.php' => base_path('Envoy.blade.php'),
         ], 'continuous-delivery');
     }
 
@@ -127,7 +157,7 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
     protected function registerRoutes(): void
     {
         Route::group($this->routeConfiguration(), function () {
-            $this->loadRoutesFrom(__DIR__ . '/../routes/api.php');
+            $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
         });
     }
 
@@ -148,7 +178,7 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
     protected function registerMigrations(): void
     {
         if ($this->app->runningInConsole()) {
-            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+            $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
         }
     }
 
@@ -157,20 +187,31 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
      */
     protected function registerCommands(): void
     {
-        if (!$this->app->runningInConsole()) {
+        if (! $this->app->runningInConsole()) {
             return;
         }
 
         $this->commands([
+            // Setup commands
             InstallCommand::class,
             MigrateCommand::class,
+
+            // Deployer commands (new multi-app)
+            DeployerAppsCommand::class,
+            DeployerTriggerCommand::class,
+            DeployerSetupCommand::class,
+            DeployerReleasesCommand::class,
+
+            // Deployment management
+            StatusCommand::class,
             PendingCommand::class,
             ApproveCommand::class,
             RejectCommand::class,
-            StatusCommand::class,
+            RollbackCommand::class,
+
+            // Maintenance
             ExpireCommand::class,
             CleanupCommand::class,
-            RollbackCommand::class,
         ]);
     }
 
@@ -179,7 +220,7 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
      */
     protected function registerViews(): void
     {
-        $this->loadViewsFrom(__DIR__ . '/../resources/views', 'continuous-delivery');
+        $this->loadViewsFrom(__DIR__.'/../resources/views', 'continuous-delivery');
     }
 
     /**
@@ -187,17 +228,17 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
      */
     protected function registerScheduler(): void
     {
-        if (!$this->app->runningInConsole()) {
+        if (! $this->app->runningInConsole()) {
             return;
         }
 
         $this->app->booted(function () {
-            if (!config('continuous-delivery.approval.auto_expire', true)) {
+            if (! config('continuous-delivery.approval.auto_expire', true)) {
                 return;
             }
 
             $schedule = $this->app->make(Schedule::class);
-            $schedule->command('deploy:expire')
+            $schedule->command('deployer:expire')
                 ->everyFiveMinutes()
                 ->withoutOverlapping()
                 ->runInBackground();

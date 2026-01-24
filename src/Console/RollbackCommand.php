@@ -4,165 +4,147 @@ namespace SageGrids\ContinuousDelivery\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Process;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Config\AppRegistry;
+use SageGrids\ContinuousDelivery\Deployers\DeployerFactory;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 
 class RollbackCommand extends Command
 {
-    protected $signature = 'deploy:rollback
-                            {environment : The environment to rollback}
-                            {--steps=1 : Number of releases to rollback}
+    protected $signature = 'deployer:rollback
+                            {app=default : The app key}
+                            {--release= : Target release name (for advanced strategy)}
+                            {--steps=1 : Number of releases to rollback (for simple strategy)}
                             {--reason= : Reason for rollback}
                             {--force : Skip confirmation}';
 
-    protected $description = 'Rollback to a previous deployment';
+    protected $description = 'Rollback to a previous release';
 
-    public function handle(): int
+    public function handle(AppRegistry $registry, DeployerFactory $factory): int
     {
-        $environment = $this->argument('environment');
-        $steps = max(1, (int) $this->option('steps'));
-        $reason = $this->option('reason') ?? 'Manual rollback via CLI';
+        $app = $registry->get($this->argument('app'));
 
-        // Find recent successful deployments for this environment
-        $successfulDeployments = Deployment::forEnvironment($environment)
-            ->where('status', Deployment::STATUS_SUCCESS)
-            ->orderBy('completed_at', 'desc')
-            ->take($steps + 1)
-            ->get();
+        if (! $app) {
+            $this->error("App not found: {$this->argument('app')}");
 
-        if ($successfulDeployments->count() <= $steps) {
-            $this->error("Not enough successful deployments to rollback {$steps} step(s).");
-            $this->info("Found only {$successfulDeployments->count()} successful deployment(s).");
             return self::FAILURE;
         }
 
-        $currentDeployment = $successfulDeployments->first();
-        $targetDeployment = $successfulDeployments->last();
+        $reason = $this->option('reason') ?? 'Manual rollback via CLI';
+        $deployer = $factory->make($app);
 
+        // Get available releases
+        $releases = $deployer->getAvailableReleases($app);
+
+        if (empty($releases)) {
+            $this->error('No releases available for rollback.');
+
+            return self::FAILURE;
+        }
+
+        // Determine target release
+        $targetRelease = $this->option('release');
+        if (! $targetRelease && $app->isAdvanced()) {
+            // For advanced strategy, show available releases and let user choose
+            $this->info('Available releases:');
+            foreach ($releases as $i => $release) {
+                $active = ($release['is_active'] ?? false) ? ' <fg=green>(ACTIVE)</>' : '';
+                $this->line("  {$release['name']}{$active}");
+            }
+            $this->newLine();
+
+            // Find the previous release
+            $previousRelease = null;
+            foreach ($releases as $i => $release) {
+                if (! ($release['is_active'] ?? false) && $previousRelease === null) {
+                    $previousRelease = $release['name'];
+                }
+            }
+
+            if (! $previousRelease) {
+                $this->error('No previous release found to rollback to.');
+
+                return self::FAILURE;
+            }
+
+            $targetRelease = $this->ask('Target release', $previousRelease);
+        } elseif (! $targetRelease) {
+            // Simple strategy: use steps
+            $targetRelease = (string) max(1, (int) $this->option('steps'));
+        }
+
+        // Show rollback plan
         $this->info('Rollback Plan:');
-        $this->table(
-            ['', 'Ref', 'Commit', 'Deployed At'],
-            [
-                ['Current', $currentDeployment->trigger_ref, $currentDeployment->short_commit_sha, $currentDeployment->completed_at->format('Y-m-d H:i')],
-                ['Target', $targetDeployment->trigger_ref, $targetDeployment->short_commit_sha, $targetDeployment->completed_at->format('Y-m-d H:i')],
-            ]
-        );
+        $this->table([], [
+            ['App', $app->name],
+            ['Strategy', $app->strategy],
+            ['Target', $targetRelease],
+            ['Reason', $reason],
+        ]);
 
-        if (!$this->option('force') && !$this->confirm("Proceed with rollback to {$targetDeployment->trigger_ref}?")) {
+        if (! $this->option('force') && ! $this->confirm('Proceed with rollback?')) {
             $this->info('Rollback cancelled.');
+
             return self::SUCCESS;
         }
 
-        // Create a new deployment record for the rollback
-        $rollbackDeployment = Deployment::create([
-            'environment' => $environment,
-            'trigger_type' => 'rollback',
-            'trigger_ref' => $targetDeployment->trigger_ref,
-            'commit_sha' => $targetDeployment->commit_sha,
-            'commit_message' => "Rollback to {$targetDeployment->trigger_ref}: {$reason}",
-            'author' => 'cli:' . get_current_user(),
-            'repository' => $targetDeployment->repository,
-            'envoy_story' => $targetDeployment->envoy_story,
-            'status' => Deployment::STATUS_QUEUED,
-            'queued_at' => now(),
+        // Create rollback deployment record
+        $deployment = DeployerDeployment::createRollback($app, $targetRelease);
+        $deployment->update([
+            'commit_message' => "Rollback to {$targetRelease}: {$reason}",
             'metadata' => [
                 'rollback' => true,
-                'rollback_from' => $currentDeployment->uuid,
-                'rollback_to' => $targetDeployment->uuid,
-                'rollback_reason' => $reason,
-                'rollback_steps' => $steps,
+                'target_release' => $targetRelease,
+                'reason' => $reason,
             ],
         ]);
 
         Log::info('[continuous-delivery] Rollback initiated', [
-            'uuid' => $rollbackDeployment->uuid,
-            'environment' => $environment,
-            'from' => $currentDeployment->trigger_ref,
-            'to' => $targetDeployment->trigger_ref,
+            'uuid' => $deployment->uuid,
+            'app' => $app->key,
+            'target' => $targetRelease,
             'reason' => $reason,
         ]);
 
-        $this->info("Rollback deployment created: {$rollbackDeployment->uuid}");
-
-        // Execute the rollback immediately
+        $this->info("Rollback deployment created: {$deployment->uuid}");
         $this->info('Executing rollback...');
 
-        $rollbackDeployment->markRunning();
+        $deployment->markRunning();
 
         try {
-            $envoyPath = $this->getEnvoyPath();
-            $story = $rollbackDeployment->envoy_story;
-            $ref = $rollbackDeployment->trigger_ref;
+            $result = $deployer->rollback($app, $deployment, $targetRelease);
 
-            $command = sprintf(
-                '%s run %s --ref=%s',
-                escapeshellarg($envoyPath),
-                escapeshellarg($story),
-                escapeshellarg($ref)
-            );
-
-            $envoyFile = config('continuous-delivery.envoy.path');
-            if ($envoyFile && file_exists($envoyFile)) {
-                $command = sprintf(
-                    '%s run %s --ref=%s --path=%s',
-                    escapeshellarg($envoyPath),
-                    escapeshellarg($story),
-                    escapeshellarg($ref),
-                    escapeshellarg($envoyFile)
-                );
-            }
-
-            $result = Process::timeout(1800)->run($command);
-            $output = $result->output() . "\n" . $result->errorOutput();
-
-            if ($result->successful()) {
-                $rollbackDeployment->markSuccess($output);
+            if ($result->isSuccess()) {
+                $deployment->markSuccess($result->output, $result->releaseName);
                 $this->info('Rollback completed successfully.');
 
                 Log::info('[continuous-delivery] Rollback completed', [
-                    'uuid' => $rollbackDeployment->uuid,
+                    'uuid' => $deployment->uuid,
                 ]);
 
                 return self::SUCCESS;
             }
 
-            $rollbackDeployment->markFailed($output, $result->exitCode());
+            $deployment->markFailed($result->output, $result->exitCode);
             $this->error('Rollback failed.');
-            $this->line($output);
+            $this->line($result->output);
 
             Log::error('[continuous-delivery] Rollback failed', [
-                'uuid' => $rollbackDeployment->uuid,
-                'exit_code' => $result->exitCode(),
+                'uuid' => $deployment->uuid,
+                'exit_code' => $result->exitCode,
             ]);
 
             return self::FAILURE;
 
         } catch (\Throwable $e) {
-            $rollbackDeployment->markFailed($e->getMessage(), 1);
-            $this->error('Rollback failed: ' . $e->getMessage());
+            $deployment->markFailed($e->getMessage(), 1);
+            $this->error('Rollback failed: '.$e->getMessage());
 
             Log::error('[continuous-delivery] Rollback failed with exception', [
-                'uuid' => $rollbackDeployment->uuid,
+                'uuid' => $deployment->uuid,
                 'error' => $e->getMessage(),
             ]);
 
             return self::FAILURE;
         }
-    }
-
-    protected function getEnvoyPath(): string
-    {
-        $configPath = config('continuous-delivery.envoy.binary');
-
-        if ($configPath && is_executable($configPath)) {
-            return $configPath;
-        }
-
-        $vendorPath = base_path('vendor/bin/envoy');
-        if (is_executable($vendorPath)) {
-            return $vendorPath;
-        }
-
-        throw new \RuntimeException('Envoy binary not found');
     }
 }

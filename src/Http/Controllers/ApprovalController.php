@@ -7,7 +7,7 @@ use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use SageGrids\ContinuousDelivery\Jobs\RunDeployJob;
-use SageGrids\ContinuousDelivery\Models\Deployment;
+use SageGrids\ContinuousDelivery\Models\DeployerDeployment;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentApproved;
 use SageGrids\ContinuousDelivery\Notifications\DeploymentRejected;
 
@@ -20,7 +20,7 @@ class ApprovalController extends Controller
     {
         $deployment = $this->findDeployment($token, $request);
 
-        if (!$deployment) {
+        if (! $deployment) {
             return $this->renderError(
                 'Deployment Not Found',
                 'This deployment request was not found or has already been processed.'
@@ -34,7 +34,7 @@ class ApprovalController extends Controller
             );
         }
 
-        if (!$deployment->canBeApproved()) {
+        if (! $deployment->canBeApproved()) {
             return $this->renderError(
                 'Cannot Approve',
                 "This deployment cannot be approved. Current status: {$deployment->status}"
@@ -76,14 +76,14 @@ class ApprovalController extends Controller
     {
         $deployment = $this->findDeployment($token, $request);
 
-        if (!$deployment) {
+        if (! $deployment) {
             return $this->renderError(
                 'Deployment Not Found',
                 'This deployment request was not found or has already been processed.'
             );
         }
 
-        if (!$deployment->canBeRejected()) {
+        if (! $deployment->canBeRejected()) {
             return $this->renderError(
                 'Cannot Reject',
                 "This deployment cannot be rejected. Current status: {$deployment->status}"
@@ -122,16 +122,17 @@ class ApprovalController extends Controller
     /**
      * Find deployment by approval token using hash lookup.
      */
-    protected function findDeployment(string $token, Request $request): ?Deployment
+    protected function findDeployment(string $token, Request $request): ?DeployerDeployment
     {
         if (strlen($token) !== 64) {
             $this->logFailedAttempt($request, 'invalid_token_length', $token);
+
             return null;
         }
 
-        $deployment = Deployment::findByApprovalToken($token);
+        $deployment = DeployerDeployment::findByApprovalToken($token);
 
-        if (!$deployment) {
+        if (! $deployment) {
             $this->logFailedAttempt($request, 'token_not_found', $token);
         }
 
@@ -145,7 +146,7 @@ class ApprovalController extends Controller
     {
         Log::warning('[continuous-delivery] Failed approval attempt', [
             'reason' => $reason,
-            'token_prefix' => substr($token, 0, 8) . '...',
+            'token_prefix' => substr($token, 0, 8).'...',
             'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
             'referer' => $request->header('Referer'),
@@ -167,7 +168,7 @@ class ApprovalController extends Controller
     /**
      * Dispatch deployment job.
      */
-    protected function dispatchDeployment(Deployment $deployment): void
+    protected function dispatchDeployment(DeployerDeployment $deployment): void
     {
         $job = new RunDeployJob($deployment);
 
@@ -188,7 +189,7 @@ class ApprovalController extends Controller
     /**
      * Render success view.
      */
-    protected function renderSuccess(Deployment $deployment): Response
+    protected function renderSuccess(DeployerDeployment $deployment): Response
     {
         return response()->view('continuous-delivery::approved', [
             'deployment' => $deployment,
@@ -198,7 +199,7 @@ class ApprovalController extends Controller
     /**
      * Render rejected view.
      */
-    protected function renderRejected(Deployment $deployment): Response
+    protected function renderRejected(DeployerDeployment $deployment): Response
     {
         return response()->view('continuous-delivery::rejected', [
             'deployment' => $deployment,
@@ -219,7 +220,7 @@ class ApprovalController extends Controller
     /**
      * Send approval notification.
      */
-    protected function notifyApproved(Deployment $deployment): void
+    protected function notifyApproved(DeployerDeployment $deployment): void
     {
         try {
             $deployment->notify(new DeploymentApproved($deployment));
@@ -234,7 +235,7 @@ class ApprovalController extends Controller
     /**
      * Send rejection notification.
      */
-    protected function notifyRejected(Deployment $deployment): void
+    protected function notifyRejected(DeployerDeployment $deployment): void
     {
         try {
             $deployment->notify(new DeploymentRejected($deployment));
