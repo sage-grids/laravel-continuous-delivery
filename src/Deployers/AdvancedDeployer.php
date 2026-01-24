@@ -57,7 +57,7 @@ class AdvancedDeployer implements DeployerStrategy
 
     public function rollback(AppConfig $app, DeployerDeployment $deployment, ?string $targetRelease = null): DeployerResult
     {
-        // Find target release
+        // Find target release record
         $release = $targetRelease
             ? DeployerRelease::where('app_key', $app->key)->where('name', $targetRelease)->first()
             : DeployerRelease::where('app_key', $app->key)
@@ -68,33 +68,17 @@ class AdvancedDeployer implements DeployerStrategy
         if (! $release) {
             return new DeployerResult(
                 success: false,
-                output: 'No release to rollback to',
+                output: 'No release record found to rollback to',
                 exitCode: 1,
             );
         }
 
-        // Verify the release directory exists
-        if (! is_dir($release->path)) {
-            return new DeployerResult(
-                success: false,
-                output: "Release directory not found: {$release->path}",
-                exitCode: 1,
-            );
-        }
-
-        // Atomic symlink switch
-        $currentLink = $app->getCurrentLink();
-        $tempLink = $currentLink.'.new';
-
-        $commands = [
-            sprintf('ln -sfn %s %s', escapeshellarg($release->path), escapeshellarg($tempLink)),
-            sprintf('mv -Tf %s %s', escapeshellarg($tempLink), escapeshellarg($currentLink)),
-        ];
-
-        $result = Process::run(implode(' && ', $commands));
+        // Run Envoy rollback task
+        $command = $this->buildEnvoyCommand($app, $deployment, $release->name, 'advanced-rollback-activate');
+        $result = Process::run($command);
 
         if ($result->successful()) {
-            // Update active status
+            // Update active status in database
             DeployerRelease::where('app_key', $app->key)->update(['is_active' => false]);
             $release->update(['is_active' => true]);
 
@@ -138,18 +122,20 @@ class AdvancedDeployer implements DeployerStrategy
         $releases = DeployerRelease::where('app_key', $app->key)
             ->where('is_active', false)
             ->orderByDesc('created_at')
-            ->skip($keepReleases - 1) // Keep one less since the active one is separate
+            ->skip($keepReleases - 1)
             ->get();
 
+        if ($releases->isEmpty()) {
+            return 0;
+        }
+
+        // Run Envoy cleanup task
+        $deployment = new DeployerDeployment(['app_key' => $app->key]);
+        $command = $this->buildEnvoyCommand($app, $deployment, null, 'advanced-cleanup');
+        Process::run($command);
+
         $deleted = 0;
-
         foreach ($releases as $release) {
-            // Delete the directory
-            if (is_dir($release->path)) {
-                Process::run(sprintf('rm -rf %s', escapeshellarg($release->path)));
-            }
-
-            // Delete the record
             $release->delete();
             $deleted++;
         }
@@ -157,17 +143,18 @@ class AdvancedDeployer implements DeployerStrategy
         return $deleted;
     }
 
-    protected function buildEnvoyCommand(AppConfig $app, DeployerDeployment $deployment, string $releaseName): string
+    protected function buildEnvoyCommand(AppConfig $app, DeployerDeployment $deployment, ?string $releaseName = null, ?string $story = null): string
     {
         $envoyBinary = $this->getEnvoyBinary();
         $envoyPath = config('continuous-delivery.envoy.path', base_path('Envoy.blade.php'));
+        $envoyStory = $story ?? $deployment->envoy_story;
 
         $vars = [
             'app' => $app->key,
             'strategy' => 'advanced',
             'path' => $app->path,
-            'ref' => $deployment->trigger_ref,
-            'releaseName' => $releaseName,
+            'ref' => $deployment->trigger_ref ?? 'HEAD',
+            'releaseName' => $releaseName ?? '',
             'releasesPath' => $app->getReleasesPath(),
             'sharedPath' => $app->getSharedPath(),
             'currentLink' => $app->getCurrentLink(),
@@ -176,6 +163,10 @@ class AdvancedDeployer implements DeployerStrategy
             'php' => 'php',
             'composer' => 'composer',
         ];
+
+        if ($releaseName) {
+            $vars['targetReleasePath'] = $app->getReleasesPath().'/'.$releaseName;
+        }
 
         // Add shared dirs and files as JSON
         $vars['sharedDirs'] = json_encode($app->getSharedDirs());

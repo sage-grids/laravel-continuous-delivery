@@ -92,6 +92,7 @@ return [
     */
     'route' => [
         'path' => env('CD_WEBHOOK_PATH', '/deploy/github'),
+        'prefix' => env('CD_ROUTE_PREFIX', 'api'),
         'middleware' => ['api', 'throttle:10,1'],
     ],
 
@@ -118,7 +119,7 @@ return [
     */
     'database' => [
         'connection' => env('CD_DATABASE', 'sqlite'),
-        'sqlite_path' => env('CD_DATABASE_PATH', '/var/lib/sage-grids-cd/deployments.sqlite'),
+        'sqlite_path' => env('CD_DATABASE_PATH', storage_path('continuous-delivery/deployments.sqlite')),
     ],
 
     /*

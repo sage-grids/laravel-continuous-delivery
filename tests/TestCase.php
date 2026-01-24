@@ -7,6 +7,8 @@ use SageGrids\ContinuousDelivery\ContinuousDeliveryServiceProvider;
 
 abstract class TestCase extends Orchestra
 {
+    use \Illuminate\Foundation\Testing\RefreshDatabase;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -33,7 +35,7 @@ abstract class TestCase extends Orchestra
         ]);
 
         // Disable isolated database for testing (use the test database)
-        $app['config']->set('continuous-delivery.storage.database', null);
+        $app['config']->set('continuous-delivery.database.connection', 'testing');
 
         // Disable throttling for tests
         $app['config']->set('continuous-delivery.route.middleware', ['api']);
@@ -42,21 +44,29 @@ abstract class TestCase extends Orchestra
         $app['config']->set('continuous-delivery.github.webhook_secret', 'test-secret');
         $app['config']->set('continuous-delivery.github.only_repo_full_name', null);
 
-        $app['config']->set('continuous-delivery.environments', [
-            'staging' => [
-                'enabled' => true,
-                'trigger' => 'branch',
-                'branch' => 'develop',
-                'approval_required' => false,
-                'envoy_story' => 'staging',
-            ],
-            'production' => [
-                'enabled' => true,
-                'trigger' => 'release',
-                'tag_pattern' => '/^v\d+\.\d+\.\d+$/',
-                'approval_required' => true,
-                'approval_timeout_hours' => 2,
-                'envoy_story' => 'production',
+        $app['config']->set('continuous-delivery.apps', [
+            'default' => [
+                'name' => 'Default App',
+                'repository' => 'owner/repo',
+                'path' => '/var/www/default',
+                'strategy' => 'simple',
+                'triggers' => [
+                    [
+                        'name' => 'staging',
+                        'on' => 'push',
+                        'branch' => 'develop',
+                        'auto_deploy' => true,
+                        'story' => 'staging',
+                    ],
+                    [
+                        'name' => 'production',
+                        'on' => 'release',
+                        'tag_pattern' => '/^v\d+\.\d+\.\d+$/',
+                        'auto_deploy' => false,
+                        'approval_timeout' => 2,
+                        'story' => 'production',
+                    ],
+                ],
             ],
         ]);
 
@@ -75,6 +85,21 @@ abstract class TestCase extends Orchestra
     protected function defineDatabaseMigrations(): void
     {
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+    }
+
+    protected function createDeployment(array $attributes = []): \SageGrids\ContinuousDelivery\Models\DeployerDeployment
+    {
+        return \SageGrids\ContinuousDelivery\Models\DeployerDeployment::create(array_merge([
+            'app_key' => 'default',
+            'app_name' => 'Default App',
+            'trigger_name' => 'staging',
+            'trigger_type' => 'push',
+            'trigger_ref' => 'develop',
+            'commit_sha' => 'abc1234567890',
+            'status' => 'queued',
+            'strategy' => 'simple',
+            'envoy_story' => 'staging',
+        ], $attributes));
     }
 
     protected function createGithubPushPayload(

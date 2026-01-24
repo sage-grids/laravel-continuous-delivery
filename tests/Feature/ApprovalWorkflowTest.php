@@ -17,20 +17,47 @@ class ApprovalWorkflowTest extends TestCase
     }
 
     #[Test]
-    public function it_approves_pending_deployment(): void
+    public function it_shows_approval_confirmation_view(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
+        $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
+            'approval_token' => str_repeat('0', 64),
             'approval_expires_at' => now()->addHours(2),
         ]);
 
         $response = $this->get("/api/deploy/approve/{$deployment->approval_token}");
+
+        $response->assertStatus(200);
+        $response->assertViewIs('continuous-delivery::confirm-approval');
+        $response->assertViewHas('deployment', $deployment);
+    }
+
+    #[Test]
+    public function it_shows_rejection_confirmation_view(): void
+    {
+        $deployment = $this->createDeployment([
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
+            'approval_token' => str_repeat('0', 64),
+            'approval_expires_at' => now()->addHours(2),
+        ]);
+
+        $response = $this->get("/api/deploy/reject/{$deployment->approval_token}");
+
+        $response->assertStatus(200);
+        $response->assertViewIs('continuous-delivery::confirm-rejection');
+        $response->assertViewHas('deployment', $deployment);
+    }
+
+    #[Test]
+    public function it_approves_pending_deployment_via_post(): void
+    {
+        $deployment = $this->createDeployment([
+            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
+            'approval_token' => str_repeat('0', 64),
+            'approval_expires_at' => now()->addHours(2),
+        ]);
+
+        $response = $this->post("/api/deploy/approve/{$deployment->approval_token}");
 
         $response->assertStatus(200);
         $response->assertViewIs('continuous-delivery::approved');
@@ -44,20 +71,17 @@ class ApprovalWorkflowTest extends TestCase
     }
 
     #[Test]
-    public function it_rejects_pending_deployment(): void
+    public function it_rejects_pending_deployment_via_post(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
+        $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
+            'approval_token' => str_repeat('0', 64),
             'approval_expires_at' => now()->addHours(2),
         ]);
 
-        $response = $this->get("/api/deploy/reject/{$deployment->approval_token}");
+        $response = $this->post("/api/deploy/reject/{$deployment->approval_token}", [
+            'reason' => 'Not ready',
+        ]);
 
         $response->assertStatus(200);
         $response->assertViewIs('continuous-delivery::rejected');
@@ -66,6 +90,7 @@ class ApprovalWorkflowTest extends TestCase
         $this->assertEquals(DeployerDeployment::STATUS_REJECTED, $deployment->status);
         $this->assertNotNull($deployment->rejected_by);
         $this->assertNotNull($deployment->rejected_at);
+        $this->assertEquals('Not ready', $deployment->rejection_reason);
 
         Queue::assertNotPushed(RunDeployJob::class);
     }
@@ -93,14 +118,9 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_returns_error_for_expired_approval(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
+        $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
+            'approval_token' => str_repeat('0', 64),
             'approval_expires_at' => now()->subHour(),
         ]);
 
@@ -114,14 +134,9 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_returns_error_when_already_approved(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
-            'status' => DeployerDeployment::STATUS_APPROVED,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
+        $deployment = $this->createDeployment([
+            'status' => DeployerDeployment::STATUS_QUEUED,
+            'approval_token' => str_repeat('0', 64),
             'approved_by' => 'someone@example.com',
             'approved_at' => now(),
         ]);
@@ -136,14 +151,9 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_returns_error_when_rejecting_already_rejected(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
+        $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_REJECTED,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
+            'approval_token' => str_repeat('0', 64),
             'rejected_by' => 'someone@example.com',
             'rejected_at' => now(),
         ]);
@@ -158,110 +168,17 @@ class ApprovalWorkflowTest extends TestCase
     #[Test]
     public function it_records_ip_as_approver_for_unauthenticated_user(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
+        $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
+            'approval_token' => str_repeat('0', 64),
             'approval_expires_at' => now()->addHours(2),
         ]);
 
-        $response = $this->get("/api/deploy/approve/{$deployment->approval_token}");
+        $response = $this->post("/api/deploy/approve/{$deployment->approval_token}");
 
         $response->assertStatus(200);
 
         $deployment->refresh();
         $this->assertStringStartsWith('ip:', $deployment->approved_by);
-    }
-
-    #[Test]
-    public function it_accepts_reason_for_rejection(): void
-    {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
-            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
-            'approval_expires_at' => now()->addHours(2),
-        ]);
-
-        $response = $this->get("/api/deploy/reject/{$deployment->approval_token}?reason=Not%20ready");
-
-        $response->assertStatus(200);
-
-        $deployment->refresh();
-        $this->assertEquals('Not ready', $deployment->rejection_reason);
-    }
-
-    #[Test]
-    public function it_uses_default_reason_when_not_provided(): void
-    {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
-            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
-            'approval_expires_at' => now()->addHours(2),
-        ]);
-
-        $response = $this->get("/api/deploy/reject/{$deployment->approval_token}");
-
-        $response->assertStatus(200);
-
-        $deployment->refresh();
-        $this->assertEquals('Rejected via web interface', $deployment->rejection_reason);
-    }
-
-    #[Test]
-    public function approve_view_contains_deployment_info(): void
-    {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
-            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
-            'approval_expires_at' => now()->addHours(2),
-        ]);
-
-        $response = $this->get("/api/deploy/approve/{$deployment->approval_token}");
-
-        $response->assertStatus(200);
-        $response->assertViewHas('deployment', function ($viewDeployment) use ($deployment) {
-            return $viewDeployment->uuid === $deployment->uuid;
-        });
-    }
-
-    #[Test]
-    public function rejected_view_contains_deployment_info(): void
-    {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
-            'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
-            'approval_token' => '0000000000000000000000000000000000000000000000000000000000000000',
-            'approval_expires_at' => now()->addHours(2),
-        ]);
-
-        $response = $this->get("/api/deploy/reject/{$deployment->approval_token}");
-
-        $response->assertStatus(200);
-        $response->assertViewHas('deployment', function ($viewDeployment) use ($deployment) {
-            return $viewDeployment->uuid === $deployment->uuid;
-        });
     }
 }

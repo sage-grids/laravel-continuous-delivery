@@ -76,7 +76,7 @@ class WebhookTest extends TestCase
         ], $payloadJson);
 
         $response->assertStatus(200);
-        $response->assertJson(['message' => 'No matching triggers found']);
+        $response->assertJson(['message' => 'No matching triggers']);
         Queue::assertNotPushed(RunDeployJob::class);
     }
 
@@ -123,7 +123,7 @@ class WebhookTest extends TestCase
         ], $payloadJson);
 
         $response->assertStatus(200);
-        $response->assertJson(['message' => 'Release action ignored']);
+        $response->assertJson(['message' => 'Event ignored']);
     }
 
     #[Test]
@@ -164,11 +164,7 @@ class WebhookTest extends TestCase
     public function it_rejects_when_active_deployment_exists(): void
     {
         // Create an active deployment
-        DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'staging',
-            'trigger_ref' => 'develop',
+        $this->createDeployment([
             'commit_sha' => 'existing123',
             'status' => DeployerDeployment::STATUS_RUNNING,
         ]);
@@ -190,12 +186,7 @@ class WebhookTest extends TestCase
     #[Test]
     public function it_returns_deployment_status(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'staging',
-            'trigger_ref' => 'develop',
-            'commit_sha' => 'abc1234567890',
+        $deployment = $this->createDeployment([
             'author' => 'testuser',
             'status' => DeployerDeployment::STATUS_SUCCESS,
             'started_at' => now()->subMinutes(5),

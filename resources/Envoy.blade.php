@@ -13,6 +13,7 @@
     $sharedPath = $sharedPath ?? $path . '/shared';
     $currentLink = $currentLink ?? $path . '/current';
     $releasePath = $releasesPath . '/' . $releaseName;
+    $targetReleasePath = $targetReleasePath ?? null;
     $keepReleases = $keepReleases ?? 5;
     $repository = $repository ?? null;
 
@@ -241,9 +242,9 @@
 @task('advanced-activate')
     echo "=== Activating release ==="
 
-    # Atomic symlink switch (two-step for atomicity)
+    # Atomic symlink switch
     ln -sfn {{ $releasePath }} {{ $currentLink }}.new
-    mv -Tf {{ $currentLink }}.new {{ $currentLink }}
+    mv -f {{ $currentLink }}.new {{ $currentLink }}
 
     echo "Active release: $(readlink {{ $currentLink }})"
 @endtask
@@ -257,24 +258,34 @@
 @task('advanced-cleanup')
     echo "=== Cleaning up old releases (keeping {{ $keepReleases }}) ==="
     cd {{ $releasesPath }}
-    ls -1dt */ | tail -n +{{ $keepReleases + 1 }} | xargs -r rm -rf
+    # Portable cleanup
+    ls -1dt */ | tail -n +{{ $keepReleases + 1 }} | xargs rm -rf
     echo "Remaining releases:"
     ls -1dt */
 @endtask
 
+@task('advanced-get-size')
+    du -sh {{ $targetPath ?? $path }} 2>/dev/null | cut -f1
+@endtask
+
 @task('advanced-rollback-activate')
     echo "=== Rolling back to previous release ==="
-    cd {{ $releasesPath }}
-    PREVIOUS=$(ls -1dt */ | sed -n '2p' | tr -d '/')
 
-    if [ -z "$PREVIOUS" ]; then
-        echo "ERROR: No previous release found"
+    @if($targetReleasePath)
+        TARGET={{ $targetReleasePath }}
+    @else
+        cd {{ $releasesPath }}
+        TARGET={{ $releasesPath }}/$(ls -1dt */ | sed -n '2p' | tr -d '/')
+    @endif
+
+    if [ ! -d "$TARGET" ]; then
+        echo "ERROR: Target release not found: $TARGET"
         exit 1
     fi
 
-    echo "Rolling back to: $PREVIOUS"
-    ln -sfn {{ $releasesPath }}/$PREVIOUS {{ $currentLink }}.new
-    mv -Tf {{ $currentLink }}.new {{ $currentLink }}
+    echo "Rolling back to: $TARGET"
+    ln -sfn $TARGET {{ $currentLink }}.new
+    mv -f {{ $currentLink }}.new {{ $currentLink }}
 
     echo "Active release: $(readlink {{ $currentLink }})"
 @endtask

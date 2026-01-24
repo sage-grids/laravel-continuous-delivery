@@ -75,22 +75,43 @@ class DeployController extends Controller
 
         $deployments = [];
 
-        foreach ($matches as $match) {
-            $deployment = $this->createDeployment(
-                $match['app'],
-                $match['trigger'],
-                $eventType,
-                $ref,
-                $payload
-            );
+        try {
+            foreach ($matches as $match) {
+                $deployment = $this->createDeployment(
+                    $match['app'],
+                    $match['trigger'],
+                    $eventType,
+                    $ref,
+                    $payload
+                );
 
-            if ($deployment) {
-                $deployments[] = [
-                    'uuid' => $deployment->uuid,
-                    'app' => $deployment->app_key,
-                    'status' => $deployment->status,
-                ];
+                if ($deployment) {
+                    Log::info('[continuous-delivery] Deployment created', [
+                        'uuid' => $deployment->uuid,
+                        'app' => $deployment->app_key,
+                        'trigger' => $match['trigger']['name'],
+                        'strategy' => $match['app']->strategy,
+                        'requires_approval' => $match['app']->requiresApproval($match['trigger']),
+                    ]);
+
+                    if ($match['app']->requiresApproval($match['trigger'])) {
+                        $this->notifyApprovalRequired($deployment);
+                    } else {
+                        $this->dispatchDeployment($deployment);
+                    }
+
+                    $deployments[] = [
+                        'uuid' => $deployment->uuid,
+                        'app' => $deployment->app_key,
+                        'status' => $deployment->status,
+                    ];
+                }
             }
+        } catch (DeploymentConflictException $e) {
+            return response()->json([
+                'error' => $e->getMessage(),
+                'active_deployment' => $e->getActiveDeploymentUuid(),
+            ], 409);
         }
 
         return response()->json([
@@ -135,55 +156,27 @@ class DeployController extends Controller
         string $triggerRef,
         array $payload
     ): ?DeployerDeployment {
-        try {
-            $deployment = DB::connection(DeployerDeployment::getDeploymentConnection())
-                ->transaction(function () use ($app, $trigger, $triggerType, $triggerRef, $payload) {
-                    // Check for active deployment with pessimistic locking
-                    $activeDeployment = DeployerDeployment::forApp($app->key)
-                        ->forTrigger($trigger['name'])
-                        ->active()
-                        ->lockForUpdate()
-                        ->first();
+        return DB::connection(DeployerDeployment::getDeploymentConnection())
+            ->transaction(function () use ($app, $trigger, $triggerType, $triggerRef, $payload) {
+                // Check for active deployment with pessimistic locking
+                $activeDeployment = DeployerDeployment::forApp($app->key)
+                    ->forTrigger($trigger['name'])
+                    ->active()
+                    ->lockForUpdate()
+                    ->first();
 
-                    if ($activeDeployment) {
-                        throw new DeploymentConflictException($app->key, $activeDeployment);
-                    }
+                if ($activeDeployment) {
+                    throw new DeploymentConflictException($app->key, $activeDeployment);
+                }
 
-                    return DeployerDeployment::createFromWebhook(
-                        $app,
-                        $trigger,
-                        $triggerType,
-                        $triggerRef,
-                        $payload
-                    );
-                });
-        } catch (DeploymentConflictException $e) {
-            Log::warning('[continuous-delivery] Active deployment exists', [
-                'app' => $app->key,
-                'trigger' => $trigger['name'],
-                'active_uuid' => $e->getActiveDeploymentUuid(),
-            ]);
-
-            return null;
-        }
-
-        Log::info('[continuous-delivery] Deployment created', [
-            'uuid' => $deployment->uuid,
-            'app' => $app->key,
-            'trigger' => $trigger['name'],
-            'strategy' => $app->strategy,
-            'requires_approval' => $app->requiresApproval($trigger),
-        ]);
-
-        if ($app->requiresApproval($trigger)) {
-            $this->notifyApprovalRequired($deployment);
-
-            return $deployment;
-        }
-
-        $this->dispatchDeployment($deployment);
-
-        return $deployment;
+                return DeployerDeployment::createFromWebhook(
+                    $app,
+                    $trigger,
+                    $triggerType,
+                    $triggerRef,
+                    $payload
+                );
+            });
     }
 
     /**

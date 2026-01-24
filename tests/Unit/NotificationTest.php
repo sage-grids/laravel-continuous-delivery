@@ -21,9 +21,7 @@ class NotificationTest extends TestCase
     {
         parent::setUp();
 
-        $this->deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
+        $this->deployment = $this->createDeployment([
             'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',

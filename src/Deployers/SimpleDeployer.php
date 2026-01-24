@@ -26,15 +26,10 @@ class SimpleDeployer implements DeployerStrategy
 
     public function rollback(AppConfig $app, DeployerDeployment $deployment, ?string $targetRelease = null): DeployerResult
     {
-        // For simple mode, rollback means checkout previous commit
-        $steps = $targetRelease ? (int) $targetRelease : 1;
-
-        $command = sprintf(
-            'cd %s && git checkout HEAD~%d',
-            escapeshellarg($app->path),
-            $steps
-        );
-
+        // For simple mode, rollback means checkout previous commit or specific ref
+        $ref = $targetRelease ?? 'HEAD~1';
+        
+        $command = $this->buildEnvoyCommand($app, $deployment, 'rollback', $ref);
         $result = Process::run($command);
 
         return new DeployerResult(
@@ -46,6 +41,8 @@ class SimpleDeployer implements DeployerStrategy
 
     public function getAvailableReleases(AppConfig $app): array
     {
+        // This still runs locally which is a limitation for SimpleDeployer on remote servers
+        // unless we wrap this in Envoy too. For now, we'll keep it as is or improve later.
         $command = sprintf(
             'cd %s && git log --oneline -20',
             escapeshellarg($app->path)
@@ -72,16 +69,17 @@ class SimpleDeployer implements DeployerStrategy
             ->toArray();
     }
 
-    protected function buildEnvoyCommand(AppConfig $app, DeployerDeployment $deployment): string
+    protected function buildEnvoyCommand(AppConfig $app, DeployerDeployment $deployment, ?string $story = null, ?string $ref = null): string
     {
         $envoyBinary = $this->getEnvoyBinary();
         $envoyPath = config('continuous-delivery.envoy.path', base_path('Envoy.blade.php'));
+        $envoyStory = $story ?? $deployment->envoy_story;
 
         $vars = [
             'app' => $app->key,
             'strategy' => 'simple',
             'path' => $app->path,
-            'ref' => $deployment->trigger_ref,
+            'ref' => $ref ?? $deployment->trigger_ref ?? 'HEAD',
             'php' => 'php',
             'composer' => 'composer',
         ];
@@ -93,7 +91,7 @@ class SimpleDeployer implements DeployerStrategy
         return sprintf(
             '%s run %s --path=%s %s 2>&1',
             $envoyBinary,
-            $deployment->envoy_story,
+            $envoyStory,
             escapeshellarg($envoyPath),
             $varString
         );

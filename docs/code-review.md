@@ -65,4 +65,4 @@
 
 -   **Type Hinting**: `DeployerStrategy::getAvailableReleases` returns `array`. Creating a specialized Data Transfer Object (DTO) like `ReleaseInfo` would be more type-safe and descriptive than returning an array of arrays.
 -   **Envoy Path**: The `getEnvoyBinary` method checks multiple locations. You might want to use `Process::run('which envoy')` as a fallback to find the binary in the system PATH if not found in standard locations.
--   **Naming**: `DeployerDeployment` is a bit tautological. `Deployment` might be cleaner if namespaced properly (`SageGrids\ContinuousDelivery\Models\Deployment`).
+

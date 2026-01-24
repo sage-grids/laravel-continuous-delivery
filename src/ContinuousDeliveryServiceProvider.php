@@ -45,6 +45,7 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->ensureDatabaseExists();
         $this->registerRateLimiting();
         $this->registerPublishables();
         $this->registerRoutes();
@@ -85,39 +86,59 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
      */
     protected function registerDatabaseConnection(): void
     {
-        $this->app->booted(function () {
-            $connection = config('continuous-delivery.database.connection');
+        $connection = config('continuous-delivery.database.connection');
 
-            // Only set up SQLite if using isolated storage
-            if ($connection !== 'sqlite') {
-                return;
+        // Only set up SQLite if using isolated storage
+        if ($connection !== 'sqlite') {
+            return;
+        }
+
+        $dbPath = config('continuous-delivery.database.sqlite_path');
+
+        if (! $dbPath) {
+            return;
+        }
+
+        // Register the connection
+        config(['database.connections.continuous-delivery' => [
+            'driver' => 'sqlite',
+            'database' => $dbPath,
+            'prefix' => '',
+            'foreign_key_constraints' => true,
+        ]]);
+    }
+
+    /**
+     * Ensure the SQLite database file and directory exist.
+     */
+    protected function ensureDatabaseExists(): void
+    {
+        $connection = config('continuous-delivery.database.connection');
+
+        if ($connection !== 'sqlite') {
+            return;
+        }
+
+        $dbPath = config('continuous-delivery.database.sqlite_path');
+
+        if (! $dbPath || $dbPath === ':memory:') {
+            return;
+        }
+
+        // Ensure directory exists
+        $dir = dirname($dbPath);
+        if (! is_dir($dir)) {
+            if (! mkdir($dir, 0755, true) && ! is_dir($dir)) {
+                throw new \RuntimeException(sprintf('Directory "%s" was not created', $dir));
             }
+        }
 
-            $dbPath = config('continuous-delivery.database.sqlite_path');
-
-            if (! $dbPath) {
-                return;
+        // Create empty database file if it doesn't exist
+        if (! file_exists($dbPath)) {
+            if (file_put_contents($dbPath, '') === false) {
+                throw new \RuntimeException(sprintf('Database file "%s" could not be created', $dbPath));
             }
-
-            // Ensure directory exists
-            $dir = dirname($dbPath);
-            if (! is_dir($dir) && is_writable(dirname($dir))) {
-                @mkdir($dir, 0755, true);
-            }
-
-            // Create empty database file if it doesn't exist
-            if (! file_exists($dbPath) && is_dir($dir) && is_writable($dir)) {
-                @touch($dbPath);
-            }
-
-            // Register the connection
-            config(['database.connections.continuous-delivery' => [
-                'driver' => 'sqlite',
-                'database' => $dbPath,
-                'prefix' => '',
-                'foreign_key_constraints' => true,
-            ]]);
-        });
+        }
     }
 
     /**
@@ -167,7 +188,7 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
     protected function routeConfiguration(): array
     {
         return [
-            'prefix' => 'api',
+            'prefix' => config('continuous-delivery.route.prefix'),
             'middleware' => config('continuous-delivery.route.middleware', ['api', 'throttle:10,1']),
         ];
     }

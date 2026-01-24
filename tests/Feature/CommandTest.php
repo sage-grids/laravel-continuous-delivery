@@ -19,9 +19,7 @@ class CommandTest extends TestCase
     #[Test]
     public function pending_command_shows_pending_deployments(): void
     {
-        DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
+        $this->createDeployment([
             'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
             'commit_sha' => 'abc1234567890',
@@ -32,7 +30,7 @@ class CommandTest extends TestCase
 
         $this->artisan('deployer:pending')
             ->assertSuccessful()
-            ->expectsOutputToContain('Default App');
+            ->expectsOutputToContain('default');
     }
 
     #[Test]
@@ -46,39 +44,30 @@ class CommandTest extends TestCase
     #[Test]
     public function pending_command_filters_by_app(): void
     {
-        DeployerDeployment::create([
+        $this->createDeployment([
             'app_key' => 'app1',
             'app_name' => 'App One',
             'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc123',
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
         ]);
 
-        DeployerDeployment::create([
+        $this->createDeployment([
             'app_key' => 'app2',
             'app_name' => 'App Two',
-            'trigger_name' => 'staging',
-            'trigger_ref' => 'develop',
-            'commit_sha' => 'def456',
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
         ]);
 
         $this->artisan('deployer:pending', ['--app' => 'app1'])
             ->assertSuccessful()
-            ->expectsOutputToContain('App One');
+            ->expectsOutputToContain('app1');
     }
 
     #[Test]
     public function approve_command_approves_deployment(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
+        $deployment = $this->createDeployment([
             'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
-            'author' => 'testuser',
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_expires_at' => now()->addHours(2),
         ]);
@@ -107,12 +96,9 @@ class CommandTest extends TestCase
     #[Test]
     public function approve_command_fails_for_expired_deployment(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
+        $deployment = $this->createDeployment([
             'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_expires_at' => now()->subHour(),
         ]);
@@ -126,13 +112,9 @@ class CommandTest extends TestCase
     #[Test]
     public function reject_command_rejects_deployment(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
+        $deployment = $this->createDeployment([
             'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc1234567890',
-            'author' => 'testuser',
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
         ]);
 
@@ -160,31 +142,19 @@ class CommandTest extends TestCase
     #[Test]
     public function status_command_shows_recent_deployments(): void
     {
-        DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'staging',
-            'trigger_ref' => 'develop',
-            'commit_sha' => 'abc1234567890',
-            'author' => 'testuser',
+        $this->createDeployment([
             'status' => DeployerDeployment::STATUS_SUCCESS,
         ]);
 
         $this->artisan('deployer:status')
             ->assertSuccessful()
-            ->expectsOutputToContain('Default App');
+            ->expectsOutputToContain('default');
     }
 
     #[Test]
     public function status_command_shows_single_deployment(): void
     {
-        $deployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
-            'trigger_name' => 'staging',
-            'trigger_ref' => 'develop',
-            'commit_sha' => 'abc1234567890',
-            'author' => 'testuser',
+        $deployment = $this->createDeployment([
             'status' => DeployerDeployment::STATUS_SUCCESS,
             'output' => 'Deployment output here',
         ]);
@@ -197,48 +167,36 @@ class CommandTest extends TestCase
     #[Test]
     public function status_command_filters_by_app(): void
     {
-        DeployerDeployment::create([
+        $this->createDeployment([
             'app_key' => 'app1',
             'app_name' => 'App One',
-            'trigger_name' => 'production',
-            'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc123',
             'status' => DeployerDeployment::STATUS_SUCCESS,
         ]);
 
-        DeployerDeployment::create([
+        $this->createDeployment([
             'app_key' => 'app2',
             'app_name' => 'App Two',
-            'trigger_name' => 'staging',
-            'trigger_ref' => 'develop',
-            'commit_sha' => 'def456',
             'status' => DeployerDeployment::STATUS_SUCCESS,
         ]);
 
         $this->artisan('deployer:status', ['--app' => 'app1'])
             ->assertSuccessful()
-            ->expectsOutputToContain('App One');
+            ->expectsOutputToContain('app1');
     }
 
     #[Test]
     public function expire_command_expires_pending_deployments(): void
     {
-        $expiredDeployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
+        $expiredDeployment = $this->createDeployment([
             'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.0',
-            'commit_sha' => 'abc123',
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_expires_at' => now()->subHour(),
         ]);
 
-        $validDeployment = DeployerDeployment::create([
-            'app_key' => 'default',
-            'app_name' => 'Default App',
+        $validDeployment = $this->createDeployment([
             'trigger_name' => 'production',
             'trigger_ref' => 'v1.0.1',
-            'commit_sha' => 'def456',
             'status' => DeployerDeployment::STATUS_PENDING_APPROVAL,
             'approval_expires_at' => now()->addHour(),
         ]);

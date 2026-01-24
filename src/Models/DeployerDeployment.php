@@ -16,7 +16,19 @@ class DeployerDeployment extends Model
 
     protected $table = 'deployer_deployments';
 
-    protected $guarded = ['id'];
+    protected $fillable = [
+        'uuid', 'app_key', 'app_name',
+        'trigger_name', 'trigger_type', 'trigger_ref',
+        'repository', 'commit_sha', 'commit_message', 'author',
+        'strategy', 'release_name', 'release_path',
+        'status', 'envoy_story',
+        'approval_token', 'approval_token_hash', 'approval_expires_at',
+        'approved_by', 'approved_at',
+        'rejected_by', 'rejected_at', 'rejection_reason',
+        'queued_at', 'started_at', 'completed_at',
+        'output', 'exit_code', 'duration_seconds',
+        'payload', 'metadata',
+    ];
 
     protected $casts = [
         'approval_expires_at' => 'datetime',
@@ -47,21 +59,13 @@ class DeployerDeployment extends Model
     public const STATUS_FAILED = 'failed';
 
     /**
-     * Use isolated database connection if configured.
-     */
-    public function getConnectionName(): ?string
-    {
-        return static::getDeploymentConnection();
-    }
-
-    /**
      * Get the deployment database connection name.
      */
     public static function getDeploymentConnection(): ?string
     {
-        $connection = config('continuous-delivery.database.connection');
-
-        return $connection === 'sqlite' ? 'continuous-delivery' : config('database.default');
+        return config('continuous-delivery.database.connection') === 'sqlite' 
+            ? 'continuous-delivery' 
+            : null; // Use default connection
     }
 
     /**
@@ -361,12 +365,12 @@ class DeployerDeployment extends Model
 
     public function getApproveUrl(): string
     {
-        return route('continuous-delivery.approve', $this->approval_token);
+        return route('continuous-delivery.approve.confirm', $this->approval_token);
     }
 
     public function getRejectUrl(): string
     {
-        return route('continuous-delivery.reject', $this->approval_token);
+        return route('continuous-delivery.reject.confirm', $this->approval_token);
     }
 
     public function getStatusUrl(): string

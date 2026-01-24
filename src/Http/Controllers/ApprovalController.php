@@ -14,6 +14,39 @@ use SageGrids\ContinuousDelivery\Notifications\DeploymentRejected;
 class ApprovalController extends Controller
 {
     /**
+     * Show approval confirmation.
+     */
+    public function confirmApprove(string $token, Request $request): Response
+    {
+        $deployment = $this->findDeployment($token, $request);
+
+        if (! $deployment) {
+            return $this->renderError(
+                'Deployment Not Found',
+                'This deployment request was not found or has already been processed.'
+            );
+        }
+
+        if ($deployment->hasExpired()) {
+            return $this->renderError(
+                'Approval Expired',
+                'This deployment approval request has expired. Please create a new release to deploy.'
+            );
+        }
+
+        if (! $deployment->canBeApproved()) {
+            return $this->renderError(
+                'Cannot Approve',
+                "This deployment cannot be approved. Current status: {$deployment->status}"
+            );
+        }
+
+        return response()->view('continuous-delivery::confirm-approval', [
+            'deployment' => $deployment,
+        ]);
+    }
+
+    /**
      * Approve a deployment.
      */
     public function approve(string $token, Request $request): Response
@@ -67,6 +100,32 @@ class ApprovalController extends Controller
                 'An error occurred while processing the approval. Please try again or use the CLI.'
             );
         }
+    }
+
+    /**
+     * Show rejection confirmation.
+     */
+    public function confirmReject(string $token, Request $request): Response
+    {
+        $deployment = $this->findDeployment($token, $request);
+
+        if (! $deployment) {
+            return $this->renderError(
+                'Deployment Not Found',
+                'This deployment request was not found or has already been processed.'
+            );
+        }
+
+        if (! $deployment->canBeRejected()) {
+            return $this->renderError(
+                'Cannot Reject',
+                "This deployment cannot be rejected. Current status: {$deployment->status}"
+            );
+        }
+
+        return response()->view('continuous-delivery::confirm-rejection', [
+            'deployment' => $deployment,
+        ]);
     }
 
     /**

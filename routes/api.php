@@ -45,12 +45,24 @@ Route::get(
 */
 
 Route::middleware(['throttle:cd-approval'])->group(function () {
+    // Confirmation views (GET)
     Route::get(
+        '/deploy/approve/{token}',
+        [ApprovalController::class, 'confirmApprove']
+    )->name('continuous-delivery.approve.confirm');
+
+    Route::get(
+        '/deploy/reject/{token}',
+        [ApprovalController::class, 'confirmReject']
+    )->name('continuous-delivery.reject.confirm');
+
+    // Actions (POST)
+    Route::post(
         '/deploy/approve/{token}',
         [ApprovalController::class, 'approve']
     )->name('continuous-delivery.approve');
 
-    Route::get(
+    Route::post(
         '/deploy/reject/{token}',
         [ApprovalController::class, 'reject']
     )->name('continuous-delivery.reject');
