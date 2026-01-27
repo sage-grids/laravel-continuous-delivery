@@ -61,64 +61,64 @@ sudo chmod 755 /var/lib/sage-grids-cd
 
 ---
 
-## Step 2: First Deployment (Manual Bootstrap)
+## Step 2: First Deployment
 
-The first deployment must be done manually to bootstrap the system.
+The first deployment can be done using the included bootstrap script, which automates the entire setup process.
 
-### 2.1 Clone the Repository
-
-```bash
-cd /var/www/my-app
-
-# Create a timestamped release directory
-RELEASE_DIR=$(date +%Y%m%d%H%M%S)
-sudo -u www-data mkdir -p releases
-sudo -u www-data git clone git@github.com:your-org/your-repo.git releases/$RELEASE_DIR
-
-cd releases/$RELEASE_DIR
-```
-
-### 2.2 Install Dependencies
+### 2.1 Download the Bootstrap Script
 
 ```bash
-sudo -u www-data composer install --no-dev --optimize-autoloader
+# Download the bootstrap script to your server
+curl -o bootstrap.sh https://raw.githubusercontent.com/sage-grids/laravel-continuous-delivery/main/scripts/bootstrap.sh
+chmod +x bootstrap.sh
 ```
 
-### 2.3 Create Temporary .env for Setup
+### 2.2 Run the Bootstrap Script
+
+The script accepts configuration via environment variables:
 
 ```bash
-# Create a minimal .env so artisan commands work
-sudo -u www-data cp .env.example .env
-sudo -u www-data php artisan key:generate
+# Basic usage with defaults
+sudo ./bootstrap.sh
+
+# Or with custom configuration
+REPO_URL=git@github.com:your-org/your-repo.git \
+APP_PATH=/var/www/my-app \
+GIT_BRANCH=main \
+sudo -E ./bootstrap.sh
 ```
 
-### 2.4 Run the Setup Command
+**Available configuration options:**
 
-The `deployer:setup` command automatically creates all required directories:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REPO_URL` | `git@github.com:your-org/your-repo.git` | Repository URL (SSH or HTTPS) |
+| `APP_PATH` | `/var/www/my-app` | Application base path |
+| `WEB_USER` | `www-data` | Web server user |
+| `WEB_GROUP` | `www-data` | Web server group |
+| `CD_DATABASE_PATH` | `/var/lib/sage-grids-cd` | CD database directory |
+| `PHP_BIN` | `php` | PHP binary path |
+| `PHP_VERSION` | `8.2` | PHP version for FPM socket |
+| `APP_KEY` | `default` | App config key (matches continuous-delivery.php) |
+| `GIT_BRANCH` | `main` | Git branch to clone |
+| `RUN_NPM_BUILD` | `yes` | Whether to run npm build (`yes`/`no`) |
+| `RUN_MIGRATIONS` | `yes` | Whether to run migrations (`yes`/`no`) |
 
-```bash
-sudo -u www-data php artisan deployer:setup default --strategy=advanced
-```
+The script will:
+1. Create all required directories
+2. Clone your repository into a timestamped release
+3. Install Composer dependencies
+4. Run `deployer:setup` to create the shared directory structure
+5. Link shared resources (storage, .env) to the release
+6. Run database migrations (if enabled)
+7. Build assets with npm (if enabled)
+8. Optimize for production (config, route, view caching)
+9. Create the `current` symlink
+10. Set proper permissions
 
-This command creates:
-- `releases/` directory (already exists from our clone)
-- `shared/` directory
-- `shared/storage/app/public/`
-- `shared/storage/framework/cache/`
-- `shared/storage/framework/sessions/`
-- `shared/storage/framework/views/`
-- `shared/storage/logs/`
-- Copies `.env` to `shared/.env`
+### 2.3 Configure the Environment File
 
-**With existing storage data:** If you have existing storage data to preserve:
-
-```bash
-sudo -u www-data php artisan deployer:setup default --strategy=advanced --migrate-storage
-```
-
-### 2.5 Configure the Environment File
-
-Edit the shared `.env` file with your production settings:
+After the script completes, update the shared `.env` file with your production settings:
 
 ```bash
 sudo -u www-data nano /var/www/my-app/shared/.env
@@ -145,7 +145,67 @@ CD_DATABASE_PATH=/var/lib/sage-grids-cd/deployments.sqlite
 # Add your other environment variables...
 ```
 
-### 2.6 Link Shared Resources to Release
+---
+
+## Alternative: Manual First Deployment
+
+If you prefer to set up manually or need more control, follow these steps instead of using the bootstrap script.
+
+<details>
+<summary>Click to expand manual setup instructions</summary>
+
+### Clone the Repository
+
+```bash
+cd /var/www/my-app
+
+# Create a timestamped release directory
+RELEASE_DIR=$(date +%Y%m%d%H%M%S)
+sudo -u www-data mkdir -p releases
+sudo -u www-data git clone git@github.com:your-org/your-repo.git releases/$RELEASE_DIR
+
+cd releases/$RELEASE_DIR
+```
+
+### Install Dependencies
+
+```bash
+sudo -u www-data composer install --no-dev --optimize-autoloader
+```
+
+### Create Temporary .env for Setup
+
+```bash
+# Create a minimal .env so artisan commands work
+sudo -u www-data cp .env.example .env
+sudo -u www-data php artisan key:generate
+```
+
+### Run the Setup Command
+
+The `deployer:setup` command automatically creates all required directories:
+
+```bash
+sudo -u www-data php artisan deployer:setup default --strategy=advanced
+```
+
+This command creates:
+- `releases/` directory (already exists from our clone)
+- `shared/` directory
+- `shared/storage/app/public/`
+- `shared/storage/framework/cache/`
+- `shared/storage/framework/sessions/`
+- `shared/storage/framework/views/`
+- `shared/storage/logs/`
+- Copies `.env` to `shared/.env`
+
+**With existing storage data:** If you have existing storage data to preserve:
+
+```bash
+sudo -u www-data php artisan deployer:setup default --strategy=advanced --migrate-storage
+```
+
+### Link Shared Resources to Release
 
 ```bash
 cd /var/www/my-app/releases/$RELEASE_DIR
@@ -161,7 +221,7 @@ rm .env
 ln -s /var/www/my-app/shared/.env .env
 ```
 
-### 2.7 Run Migrations
+### Run Migrations
 
 ```bash
 # Application database migrations
@@ -171,7 +231,7 @@ sudo -u www-data php artisan migrate --force
 sudo -u www-data php artisan deployer:migrate
 ```
 
-### 2.8 Build Assets (if applicable)
+### Build Assets (if applicable)
 
 ```bash
 # If using npm/vite
@@ -179,7 +239,7 @@ npm ci
 npm run build
 ```
 
-### 2.9 Optimize for Production
+### Optimize for Production
 
 ```bash
 sudo -u www-data php artisan config:cache
@@ -187,7 +247,7 @@ sudo -u www-data php artisan route:cache
 sudo -u www-data php artisan view:cache
 ```
 
-### 2.10 Create the Current Symlink
+### Create the Current Symlink
 
 ```bash
 cd /var/www/my-app
@@ -196,12 +256,14 @@ cd /var/www/my-app
 sudo -u www-data ln -s releases/$RELEASE_DIR current
 ```
 
-### 2.11 Set Storage Permissions
+### Set Storage Permissions
 
 ```bash
 sudo chmod -R 775 /var/www/my-app/shared/storage
 sudo chown -R www-data:www-data /var/www/my-app/shared/storage
 ```
+
+</details>
 
 ---
 

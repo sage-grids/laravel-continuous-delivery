@@ -10,7 +10,8 @@ class DeployerSetupCommand extends Command
     protected $signature = 'deployer:setup
                             {app=default : The app key}
                             {--strategy= : Override strategy (simple/advanced)}
-                            {--migrate-storage : Move existing storage to shared}';
+                            {--migrate-storage : Move existing storage to shared}
+                            {--release= : Release directory name to link as current}';
 
     protected $description = 'Initialize deployment structure for an application';
 
@@ -64,17 +65,11 @@ class DeployerSetupCommand extends Command
             $this->migrateStorage($app);
         }
 
-        // Copy .env to shared
-        $envSource = $app->path.'/.env';
-        $envDest = $app->getSharedPath().'/.env';
+        // Copy .env to shared (check multiple sources)
+        $this->copyEnvToShared($app);
 
-        if (file_exists($envSource) && ! file_exists($envDest)) {
-            if (copy($envSource, $envDest)) {
-                $this->line("  <fg=green>Copied:</> .env to shared/");
-            } else {
-                $this->warn("  Failed to copy .env to shared/");
-            }
-        }
+        // Create 'current' symlink if --release option provided or auto-detect
+        $this->createCurrentSymlink($app);
 
         $this->newLine();
         $this->info('Setup complete!');
@@ -133,6 +128,81 @@ class DeployerSetupCommand extends Command
             } else {
                 copy($item->getPathname(), $targetPath);
             }
+        }
+    }
+
+    protected function copyEnvToShared($app): void
+    {
+        $envDest = $app->getSharedPath().'/.env';
+
+        if (file_exists($envDest)) {
+            $this->line("  <fg=gray>Exists:</> {$envDest}");
+
+            return;
+        }
+
+        // Try multiple sources for .env
+        $envSources = [
+            $app->path.'/.env',  // App root
+            base_path('.env'),   // Where artisan is running from (likely for bootstrap)
+        ];
+
+        foreach ($envSources as $envSource) {
+            if (file_exists($envSource)) {
+                if (copy($envSource, $envDest)) {
+                    $this->line("  <fg=green>Copied:</> {$envSource} to shared/.env");
+                } else {
+                    $this->warn("  Failed to copy {$envSource} to shared/.env");
+                }
+
+                return;
+            }
+        }
+
+        $this->warn('  No .env found to copy. Create shared/.env manually.');
+    }
+
+    protected function createCurrentSymlink($app): void
+    {
+        $currentLink = $app->getCurrentLink();
+
+        // Skip if current already exists
+        if (is_link($currentLink) || file_exists($currentLink)) {
+            $target = is_link($currentLink) ? readlink($currentLink) : $currentLink;
+            $this->line("  <fg=gray>Exists:</> current -> {$target}");
+
+            return;
+        }
+
+        $releasesPath = $app->getReleasesPath();
+        $releaseName = $this->option('release');
+
+        // If --release option provided, use it
+        if ($releaseName) {
+            $releasePath = $releasesPath.'/'.$releaseName;
+
+            if (! is_dir($releasePath)) {
+                $this->error("  Release directory not found: {$releasePath}");
+
+                return;
+            }
+        } else {
+            // Auto-detect: check if we're running from inside a release directory
+            $basePath = base_path();
+
+            if (str_starts_with($basePath, $releasesPath.'/')) {
+                $releasePath = $basePath;
+            } else {
+                $this->warn('  Skipped "current" symlink: use --release=<name> to specify which release to link');
+
+                return;
+            }
+        }
+
+        if (symlink($releasePath, $currentLink)) {
+            $this->line("  <fg=green>Created:</> current -> {$releasePath}");
+        } else {
+            $this->error("  Failed to create current symlink");
         }
     }
 }

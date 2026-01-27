@@ -191,17 +191,34 @@ class AppConfig
 
     public function getReleasesPath(): string
     {
-        return $this->path.'/'.($this->strategyConfig['releases_path'] ?? 'releases');
+        return $this->normalizePath(
+            $this->path,
+            $this->strategyConfig['releases_path'] ?? 'releases'
+        );
     }
 
     public function getSharedPath(): string
     {
-        return $this->path.'/'.($this->strategyConfig['shared_path'] ?? 'shared');
+        return $this->normalizePath(
+            $this->path,
+            $this->strategyConfig['shared_path'] ?? 'shared'
+        );
     }
 
     public function getCurrentLink(): string
     {
-        return $this->path.'/'.($this->strategyConfig['current_link'] ?? 'current');
+        return $this->normalizePath(
+            $this->path,
+            $this->strategyConfig['current_link'] ?? 'current'
+        );
+    }
+
+    /**
+     * Normalize a path by joining base and suffix without double slashes.
+     */
+    protected function normalizePath(string $base, string $suffix): string
+    {
+        return rtrim($base, '/').'/'.ltrim($suffix, '/');
     }
 
     public function getKeepReleases(): int
