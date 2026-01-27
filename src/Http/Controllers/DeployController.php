@@ -127,6 +127,14 @@ class DeployController extends Controller
                 }
             }
         } catch (DeploymentConflictException $e) {
+            Log::warning('[continuous-delivery] Deployment conflict - active deployment in progress', [
+                'app' => $e->appKey,
+                'active_deployment' => $e->getActiveDeploymentUuid(),
+                'active_status' => $e->activeDeployment?->status->value,
+                'active_created_at' => $e->activeDeployment?->created_at?->toIso8601String(),
+                'delivery_id' => $deliveryId,
+            ]);
+
             return response()->json([
                 'error' => $e->getMessage(),
                 'active_deployment' => $e->getActiveDeploymentUuid(),

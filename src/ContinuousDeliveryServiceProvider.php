@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use SageGrids\ContinuousDelivery\Config\AppRegistry;
+use SageGrids\ContinuousDelivery\Console\ActiveCommand;
 use SageGrids\ContinuousDelivery\Console\ApproveCommand;
+use SageGrids\ContinuousDelivery\Console\CancelCommand;
 use SageGrids\ContinuousDelivery\Console\CleanupCommand;
 use SageGrids\ContinuousDelivery\Console\DeployerAppsCommand;
 use SageGrids\ContinuousDelivery\Console\DeployerReleasesCommand;
@@ -226,8 +228,10 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
             // Deployment management
             StatusCommand::class,
             PendingCommand::class,
+            ActiveCommand::class,
             ApproveCommand::class,
             RejectCommand::class,
+            CancelCommand::class,
             RollbackCommand::class,
 
             // Maintenance
