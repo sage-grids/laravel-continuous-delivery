@@ -118,6 +118,7 @@ class RunDeployJob implements ShouldQueue, ShouldBeUnique
                     'uuid' => $this->deployment->uuid,
                     'exit_code' => $result->exitCode,
                     'duration_seconds' => $duration,
+                    'output' => $result->output,
                 ]);
 
                 $this->notifyFailure();
