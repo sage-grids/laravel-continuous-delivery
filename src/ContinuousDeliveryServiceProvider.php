@@ -197,12 +197,17 @@ class ContinuousDeliveryServiceProvider extends ServiceProvider
 
     /**
      * Register package migrations.
+     *
+     * Note: We intentionally do NOT call loadMigrationsFrom() here.
+     * These migrations target a separate SQLite database and should only
+     * run via `deployer:migrate`, not during `php artisan migrate`.
+     * This prevents conflicts when the SQLite DB persists across deployments
+     * but the app's migrations table doesn't track these migrations.
      */
     protected function registerMigrations(): void
     {
-        if ($this->app->runningInConsole()) {
-            $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
-        }
+        // Migrations are handled exclusively by the deployer:migrate command
+        // which specifies --database=continuous-delivery and --path explicitly
     }
 
     /**
