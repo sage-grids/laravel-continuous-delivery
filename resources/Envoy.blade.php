@@ -6,6 +6,8 @@
     $ref = $ref ?? 'main';
     $php = $php ?? 'php';
     $composer = $composer ?? 'composer';
+    $npm = $npm ?? 'npm';
+    $build = $build ?? 'npm run build';
     $devDependencies = isset($devDependencies) && $devDependencies === 'true';
 
     // Advanced mode settings
@@ -35,6 +37,7 @@
 @story('staging')
     simple-pull
     simple-install
+    simple-build
     simple-migrate
     simple-cache
     simple-restart-queue
@@ -44,6 +47,7 @@
     simple-maintenance-on
     simple-pull
     simple-install
+    simple-build
     simple-clear-cache
     simple-migrate
     simple-cache
@@ -71,6 +75,17 @@
     echo "=== Installing dependencies ==="
     cd {{ $path }}
     {{ $composer }} install @unless($devDependencies)--no-dev @endunless--optimize-autoloader --no-interaction
+@endtask
+
+@task('simple-build')
+    echo "=== Building assets ==="
+    cd {{ $path }}
+    if [ -f package.json ]; then
+        {{ $npm }} install
+        {{ $build }}
+    else
+        echo "No package.json found, skipping build."
+    fi
 @endtask
 
 @task('simple-migrate')
@@ -135,6 +150,7 @@
     advanced-clone
     advanced-link-shared
     advanced-install
+    advanced-build
     advanced-migrate
     advanced-cache
     advanced-activate
@@ -147,6 +163,7 @@
     advanced-clone
     advanced-link-shared
     advanced-install
+    advanced-build
     advanced-clear-cache
     advanced-migrate
     advanced-cache
@@ -218,6 +235,17 @@
     {{ $composer }} install @unless($devDependencies)--no-dev @endunless--optimize-autoloader --no-interaction
 @endtask
 
+@task('advanced-build')
+    echo "=== Building assets ==="
+    cd {{ $releasePath }}
+    if [ -f package.json ]; then
+        {{ $npm }} install
+        {{ $build }}
+    else
+        echo "No package.json found, skipping build."
+    fi
+@endtask
+
 @task('advanced-migrate')
     echo "=== Running migrations ==="
     cd {{ $releasePath }}
@@ -253,7 +281,7 @@
 
     # Atomic symlink switch
     ln -sfn {{ $releasePath }} {{ $currentLink }}.new
-    mv -f {{ $currentLink }}.new {{ $currentLink }}
+    {{ $php }} -r "rename('{{ $currentLink }}.new', '{{ $currentLink }}');"
 
     echo "Active release: $(readlink {{ $currentLink }})"
 @endtask
@@ -294,7 +322,7 @@
 
     echo "Rolling back to: $TARGET"
     ln -sfn $TARGET {{ $currentLink }}.new
-    mv -f {{ $currentLink }}.new {{ $currentLink }}
+    {{ $php }} -r "rename('{{ $currentLink }}.new', '{{ $currentLink }}');"
 
     echo "Active release: $(readlink {{ $currentLink }})"
 @endtask
