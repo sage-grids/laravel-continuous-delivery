@@ -6,6 +6,7 @@
     $ref = $ref ?? 'main';
     $php = $php ?? 'php';
     $composer = $composer ?? 'composer';
+    $devDependencies = isset($devDependencies) && $devDependencies === 'true';
 
     // Advanced mode settings
     $releaseName = $releaseName ?? date('Ymd_His');
@@ -69,7 +70,7 @@
 @task('simple-install')
     echo "=== Installing dependencies ==="
     cd {{ $path }}
-    {{ $composer }} install --no-dev --optimize-autoloader --no-interaction
+    {{ $composer }} install @unless($devDependencies)--no-dev @endunless--optimize-autoloader --no-interaction
 @endtask
 
 @task('simple-migrate')
@@ -214,7 +215,7 @@
 @task('advanced-install')
     echo "=== Installing dependencies ==="
     cd {{ $releasePath }}
-    {{ $composer }} install --no-dev --optimize-autoloader --no-interaction
+    {{ $composer }} install @unless($devDependencies)--no-dev @endunless--optimize-autoloader --no-interaction
 @endtask
 
 @task('advanced-migrate')

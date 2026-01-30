@@ -182,6 +182,7 @@ class SimpleDeployer implements DeployerStrategy
             'ref' => $ref ?? $deployment->trigger_ref ?? 'HEAD',
             'php' => 'php',
             'composer' => 'composer',
+            'devDependencies' => $app->getDevDependencies() ? 'true' : 'false',
             'servers_json' => json_encode($app->getServers()),
         ];
 

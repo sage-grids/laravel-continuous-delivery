@@ -270,6 +270,7 @@ class AdvancedDeployer implements DeployerStrategy
             'repository' => $app->repository ?? '',
             'php' => 'php',
             'composer' => 'composer',
+            'devDependencies' => $app->getDevDependencies() ? 'true' : 'false',
             'servers_json' => json_encode($app->getServers()),
         ];
 

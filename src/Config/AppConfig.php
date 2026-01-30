@@ -236,6 +236,11 @@ class AppConfig
         return $this->strategyConfig['shared_files'] ?? ['.env'];
     }
 
+    public function getDevDependencies(): bool
+    {
+        return (bool) ($this->strategyConfig['dev_dependencies'] ?? false);
+    }
+
     public function getTelegramChatId(): ?string
     {
         return $this->notifications['telegram'] ?? null;

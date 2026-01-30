@@ -25,7 +25,7 @@ return [
 
             // Simple strategy settings (git pull in place)
             'simple' => [
-                // No additional config needed for simple mode
+                'dev_dependencies' => env('CD_DEV_DEPENDENCIES', false), // Install dev dependencies
             ],
 
             // Advanced strategy settings (releases + symlinks)
@@ -36,6 +36,7 @@ return [
                 'keep_releases' => env('CD_KEEP_RELEASES', 5),
                 'shared_dirs' => ['storage'],
                 'shared_files' => ['.env'],
+                'dev_dependencies' => env('CD_DEV_DEPENDENCIES', false), // Install dev dependencies
             ],
 
             // Triggers define when and how to deploy
