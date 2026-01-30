@@ -21,6 +21,20 @@ return [
             'path' => env('CD_APP_PATH', base_path()),
             'servers' => ['localhost' => '127.0.0.1'],
             'strategy' => env('CD_STRATEGY', 'simple'),
+            // Simple strategy settings (git pull in place)
+            'simple' => [
+                'dev_dependencies' => env('CD_DEV_DEPENDENCIES', false), // Install dev dependencies
+            ],
+            // Advanced strategy settings (releases + symlinks)
+            'advanced' => [
+                'releases_path' => 'releases',
+                'shared_path' => 'shared',
+                'current_link' => 'current',
+                'keep_releases' => env('CD_KEEP_RELEASES', 5),
+                'shared_dirs' => ['storage'],
+                'shared_files' => ['.env'],
+                'dev_dependencies' => env('CD_DEV_DEPENDENCIES', false), // Install dev dependencies
+            ],
             'triggers' => [
                 [
                     'name' => 'staging',
