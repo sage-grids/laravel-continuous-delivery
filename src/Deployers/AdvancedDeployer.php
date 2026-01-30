@@ -260,7 +260,7 @@ class AdvancedDeployer implements DeployerStrategy
         $vars = [
             'app' => $app->key,
             'strategy' => 'advanced',
-            'path' => $app->path,
+            'appPath' => $app->path,  // Renamed to avoid conflict with Envoy's --path option
             'ref' => $deployment->trigger_ref ?? 'HEAD',
             'releaseName' => $releaseName ?? '',
             'releasesPath' => $app->getReleasesPath(),

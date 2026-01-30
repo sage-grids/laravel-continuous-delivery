@@ -19,27 +19,8 @@ return [
             'name' => env('APP_NAME', 'My App'),
             'repository' => env('CD_REPOSITORY'),  // Optional: auto-detected from .git
             'path' => env('CD_APP_PATH', base_path()),
-
-            // Deployment strategy: 'simple' or 'advanced'
+            'servers' => ['localhost' => '127.0.0.1'],
             'strategy' => env('CD_STRATEGY', 'simple'),
-
-            // Simple strategy settings (git pull in place)
-            'simple' => [
-                'dev_dependencies' => env('CD_DEV_DEPENDENCIES', false), // Install dev dependencies
-            ],
-
-            // Advanced strategy settings (releases + symlinks)
-            'advanced' => [
-                'releases_path' => 'releases',
-                'shared_path' => 'shared',
-                'current_link' => 'current',
-                'keep_releases' => env('CD_KEEP_RELEASES', 5),
-                'shared_dirs' => ['storage'],
-                'shared_files' => ['.env'],
-                'dev_dependencies' => env('CD_DEV_DEPENDENCIES', false), // Install dev dependencies
-            ],
-
-            // Triggers define when and how to deploy
             'triggers' => [
                 [
                     'name' => 'staging',
@@ -57,8 +38,6 @@ return [
                     'story' => 'production',
                 ],
             ],
-
-            // Notifications for this app
             'notifications' => [
                 'telegram' => env('CD_TELEGRAM_CHAT_ID'),
                 'slack' => env('CD_SLACK_WEBHOOK'),

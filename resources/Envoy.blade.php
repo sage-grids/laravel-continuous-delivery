@@ -2,7 +2,7 @@
     // Configuration passed from PHP
     $app = $app ?? 'default';
     $strategy = $strategy ?? 'simple';
-    $path = $path ?? '/var/www/app';
+    $path = $appPath ?? $path ?? '/var/www/app';  // appPath for advanced, path for simple
     $ref = $ref ?? 'main';
     $php = $php ?? 'php';
     $composer = $composer ?? 'composer';

@@ -72,6 +72,26 @@ class RunDeployJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
+        // Debug: Log the resolved path configuration
+        Log::debug('[continuous-delivery] App path configuration', [
+            'uuid' => $this->deployment->uuid,
+            'app_key' => $app->key,
+            'resolved_path' => $app->path,
+            'config_path' => config('continuous-delivery.apps.'.$app->key.'.path'),
+            'env_cd_app_path' => env('CD_APP_PATH'),
+            'base_path' => base_path(),
+            'config_cached' => app()->configurationIsCached(),
+        ]);
+
+        // Warn if path looks like it's inside a releases folder (common misconfiguration)
+        if ($app->isAdvanced() && preg_match('#/releases/[^/]+$#', $app->path)) {
+            Log::warning('[continuous-delivery] Path appears to be inside a releases folder. This may cause nested releases. Consider setting CD_APP_PATH to the deployment root (parent of releases folder).', [
+                'uuid' => $this->deployment->uuid,
+                'current_path' => $app->path,
+                'suggested_path' => dirname(dirname($app->path)),
+            ]);
+        }
+
         try {
             $this->validatePrerequisites($app);
         } catch (DeploymentException $e) {

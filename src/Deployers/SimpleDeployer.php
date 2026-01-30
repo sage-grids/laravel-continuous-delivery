@@ -178,7 +178,7 @@ class SimpleDeployer implements DeployerStrategy
         $vars = [
             'app' => $app->key,
             'strategy' => 'simple',
-            'path' => $app->path,
+            'appPath' => $app->path,  // Renamed to avoid conflict with Envoy's --path option
             'ref' => $ref ?? $deployment->trigger_ref ?? 'HEAD',
             'php' => 'php',
             'composer' => 'composer',
