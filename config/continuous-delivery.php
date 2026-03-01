@@ -18,7 +18,7 @@ return [
         'default' => [
             'name' => env('APP_NAME', 'My App'),
             'repository' => env('CD_REPOSITORY'),  // Optional: auto-detected from .git
-            'path' => env('CD_APP_PATH', base_path()),
+            'path' => env('CD_APP_DIR', base_path()),
             'servers' => ['localhost' => '127.0.0.1'],
             'strategy' => env('CD_STRATEGY', 'simple'),
             // Simple strategy settings (git pull in place)

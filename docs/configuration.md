@@ -310,7 +310,7 @@ return [
         'default' => [
             'name' => env('APP_NAME', 'My App'),
             'repository' => env('CD_REPOSITORY'),
-            'path' => env('CD_APP_PATH', base_path()),
+            'path' => env('CD_APP_DIR', base_path()),
             'strategy' => env('CD_STRATEGY', 'simple'),
             'simple' => [],
             'advanced' => [
