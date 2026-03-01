@@ -153,6 +153,12 @@ class DeployController extends Controller
     protected function parseGithubEvent(string $event, array $payload): array
     {
         if ($event === 'push') {
+            // Ignore branch/tag creation (before = zeros) and deletion (after = zeros) events
+            $nullSha = '0000000000000000000000000000000000000000';
+            if (($payload['before'] ?? '') === $nullSha || ($payload['after'] ?? '') === $nullSha) {
+                return [null, null];
+            }
+
             $ref = $payload['ref'] ?? '';
             $branch = str_replace('refs/heads/', '', $ref);
 
