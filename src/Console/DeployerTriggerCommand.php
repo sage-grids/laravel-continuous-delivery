@@ -11,7 +11,8 @@ class DeployerTriggerCommand extends Command
 {
     protected $signature = 'deployer:trigger
                             {app=default : The app key}
-                            {--trigger=staging : The trigger name}
+                            {trigger? : The trigger name}
+                            {--trigger=staging : The trigger name (fallback)}
                             {--ref= : Git reference (branch/tag)}
                             {--force : Skip confirmation}';
 
@@ -27,7 +28,7 @@ class DeployerTriggerCommand extends Command
             return self::FAILURE;
         }
 
-        $triggerName = $this->option('trigger');
+        $triggerName = $this->argument('trigger') ?? $this->option('trigger') ?? 'staging';
         $trigger = $app->getTrigger($triggerName);
 
         if (! $trigger) {
