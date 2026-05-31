@@ -104,7 +104,7 @@ class StatusCommand extends Command
         $this->table(
             ['UUID', 'App', 'Trigger', 'Status', 'Strategy', 'Author', 'Duration', 'Created'],
             $deployments->map(fn (DeployerDeployment $d) => [
-                substr($d->uuid, 0, 8).'...',
+                $d->uuid,
                 $d->app_key,
                 "{$d->trigger_name}:{$d->trigger_ref}",
                 $this->formatStatus($d->status),

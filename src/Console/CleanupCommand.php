@@ -62,7 +62,7 @@ class CleanupCommand extends Command
                 $this->table(
                     ['UUID', 'App', 'Status', 'Created'],
                     $query->limit(20)->get()->map(fn ($d) => [
-                        substr($d->uuid, 0, 8).'...',
+                        $d->uuid,
                         $d->app_key,
                         $d->status->value,
                         $d->created_at->format('Y-m-d H:i'),
