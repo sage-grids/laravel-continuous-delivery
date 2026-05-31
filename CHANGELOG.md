@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/sage-grids/laravel-continuous-delivery/compare/v0.1.8...v0.1.9) (2026-05-31)
+
+
+### Bug Fixes
+
+* Set unique lock duration to zero in RunDeployJob ([784f20b](https://github.com/sage-grids/laravel-continuous-delivery/commit/784f20bc95881c8193e9db8a2ca5cf5caffea70b))
+
 ## [0.1.8](https://github.com/sage-grids/laravel-continuous-delivery/compare/v0.1.7...v0.1.8) (2026-05-31)
 
 
