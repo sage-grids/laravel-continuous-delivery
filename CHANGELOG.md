@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/sage-grids/laravel-continuous-delivery/compare/v0.1.9...v0.2.0) (2026-06-07)
+
+
+### Features
+
+* add Laravel 13 support ([503cf86](https://github.com/sage-grids/laravel-continuous-delivery/commit/503cf86f9f49c00f392d6676b016277a9f9fffd4))
+
 ## [0.1.9](https://github.com/sage-grids/laravel-continuous-delivery/compare/v0.1.8...v0.1.9) (2026-05-31)
 
 
